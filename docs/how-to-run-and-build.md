@@ -49,8 +49,10 @@ To build the compiler from this repository, you need:
 
 To run the full test suite, you also need:
 
-- `llvm-as-18` or `llvm-as` in `PATH`
+- `clang-18` or `clang` in `PATH`
 - `bash` if using `make test`
+
+`llvm-as-18` or `llvm-as` is optional. The smoke tests use it when available and otherwise fall back to `clang -c -x ir`.
 
 ### Build With `make`
 
@@ -137,4 +139,4 @@ build/valid_basic.exe
 
 ```sh
 cnegc bench-lexer examples/valid_basic.cneg 500
-```.
+```

@@ -53,8 +53,10 @@ jobs:
           clang --version
           if command -v llvm-as-18 >/dev/null 2>&1; then
             llvm-as-18 --version
-          else
+          elif command -v llvm-as >/dev/null 2>&1; then
             llvm-as --version
+          else
+            echo "llvm-as not found; smoke tests will fall back to clang -c -x ir"
           fi
 
       - name: Configure
@@ -100,8 +102,10 @@ jobs:
           clang --version
           if command -v llvm-as-18 >/dev/null 2>&1; then
             llvm-as-18 --version
-          else
+          elif command -v llvm-as >/dev/null 2>&1; then
             llvm-as --version
+          else
+            echo "llvm-as not found; smoke tests will fall back to clang -c -x ir"
           fi
 
       - name: Build and test

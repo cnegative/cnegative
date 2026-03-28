@@ -14,16 +14,35 @@ trap 'rm -f "$tmp_valid" "$tmp_invalid" "$tmp_ir" "$tmp_ll" "$tmp_bc" "$tmp_obj"
 rm -f "$tmp_obj" "$tmp_bin"
 
 LLVM_AS_BIN=""
+CLANG_BIN=""
 if command -v llvm-as-18 >/dev/null 2>&1; then
     LLVM_AS_BIN="llvm-as-18"
 elif command -v llvm-as >/dev/null 2>&1; then
     LLVM_AS_BIN="llvm-as"
 fi
 
-if [ -z "$LLVM_AS_BIN" ]; then
-    printf 'expected llvm-as-18 or llvm-as in PATH for backend smoke tests\n'
+if command -v clang-18 >/dev/null 2>&1; then
+    CLANG_BIN="clang-18"
+elif command -v clang >/dev/null 2>&1; then
+    CLANG_BIN="clang"
+fi
+
+if [ -z "$LLVM_AS_BIN" ] && [ -z "$CLANG_BIN" ]; then
+    printf 'expected llvm-as-18, llvm-as, clang-18, or clang in PATH for backend smoke tests\n'
     exit 1
 fi
+
+cn_verify_llvm_ir() {
+    local ir_path="$1"
+    local output_path="$2"
+
+    if [ -n "$LLVM_AS_BIN" ]; then
+        "$LLVM_AS_BIN" "$ir_path" -o "$output_path"
+        return
+    fi
+
+    "$CLANG_BIN" -c -x ir "$ir_path" -o "$output_path"
+}
 
 ./build/cnegc check examples/valid_basic.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_structs_arrays.cneg >"$tmp_valid"
@@ -71,7 +90,7 @@ if ! grep -q '@cn_valid_basic__main' "$tmp_ll"; then
     cat "$tmp_ll"
     exit 1
 fi
-"$LLVM_AS_BIN" "$tmp_ll" -o "$tmp_bc"
+cn_verify_llvm_ir "$tmp_ll" "$tmp_bc"
 
 ./build/cnegc llvm-ir examples/valid_structs_arrays.cneg >"$tmp_ll"
 if ! grep -q '%cn_valid_structs_arrays__User = type' "$tmp_ll"; then
@@ -79,7 +98,7 @@ if ! grep -q '%cn_valid_structs_arrays__User = type' "$tmp_ll"; then
     cat "$tmp_ll"
     exit 1
 fi
-"$LLVM_AS_BIN" "$tmp_ll" -o "$tmp_bc"
+cn_verify_llvm_ir "$tmp_ll" "$tmp_bc"
 
 ./build/cnegc llvm-ir examples/valid_modules_ptr_result.cneg >"$tmp_ll"
 if ! grep -q '@malloc' "$tmp_ll"; then
@@ -87,7 +106,7 @@ if ! grep -q '@malloc' "$tmp_ll"; then
     cat "$tmp_ll"
     exit 1
 fi
-"$LLVM_AS_BIN" "$tmp_ll" -o "$tmp_bc"
+cn_verify_llvm_ir "$tmp_ll" "$tmp_bc"
 
 ./build/cnegc llvm-ir examples/valid_imported_structs.cneg >"$tmp_ll"
 if ! grep -q '%cn_shapes__Point = type' "$tmp_ll"; then
@@ -95,7 +114,7 @@ if ! grep -q '%cn_shapes__Point = type' "$tmp_ll"; then
     cat "$tmp_ll"
     exit 1
 fi
-"$LLVM_AS_BIN" "$tmp_ll" -o "$tmp_bc"
+cn_verify_llvm_ir "$tmp_ll" "$tmp_bc"
 
 ./build/cnegc llvm-ir examples/valid_llvm_backend.cneg >"$tmp_ll"
 if ! grep -q '@cn_math__add' "$tmp_ll"; then
@@ -103,7 +122,7 @@ if ! grep -q '@cn_math__add' "$tmp_ll"; then
     cat "$tmp_ll"
     exit 1
 fi
-"$LLVM_AS_BIN" "$tmp_ll" -o "$tmp_bc"
+cn_verify_llvm_ir "$tmp_ll" "$tmp_bc"
 
 ./build/cnegc llvm-ir examples/valid_strings.cneg >"$tmp_ll"
 if ! grep -q '@.cn.str.' "$tmp_ll"; then
@@ -111,7 +130,7 @@ if ! grep -q '@.cn.str.' "$tmp_ll"; then
     cat "$tmp_ll"
     exit 1
 fi
-"$LLVM_AS_BIN" "$tmp_ll" -o "$tmp_bc"
+cn_verify_llvm_ir "$tmp_ll" "$tmp_bc"
 
 ./build/cnegc llvm-ir examples/valid_input_equality.cneg >"$tmp_ll"
 if ! grep -q '@cn_input' "$tmp_ll"; then
@@ -129,7 +148,7 @@ if ! grep -q '@strcmp' "$tmp_ll"; then
     cat "$tmp_ll"
     exit 1
 fi
-"$LLVM_AS_BIN" "$tmp_ll" -o "$tmp_bc"
+cn_verify_llvm_ir "$tmp_ll" "$tmp_bc"
 
 if ./build/cnegc check examples/invalid_if_int_condition.cneg >"$tmp_invalid" 2>&1; then
     printf 'expected invalid_if_int_condition.cneg to fail\n'
