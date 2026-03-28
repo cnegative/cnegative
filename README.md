@@ -88,11 +88,16 @@ Current runtime boundary:
 
 Full setup, prerequisites, build commands, and user-facing command examples live in [docs/how-to-run-and-build.md](docs/how-to-run-and-build.md).
 
+## Install
+
+Prebuilt compiler install steps live in [install.md](install.md).
+
 ## Documentation
 
 Main docs:
 
 - [LICENSE](LICENSE)
+- [install.md](install.md)
 - [docs/spec.md](docs/spec.md)
 - [docs/how-to-run-and-build.md](docs/how-to-run-and-build.md)
 - [docs/typed-ir.md](docs/typed-ir.md)

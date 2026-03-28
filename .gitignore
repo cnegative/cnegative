@@ -17,3 +17,5 @@
 *.exe
 *.dll
 *.lib
+
+/cnegative-docs/
