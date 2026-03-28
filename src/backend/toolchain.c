@@ -38,6 +38,19 @@ static bool cn_backend_delete_file(const char *path) {
     return errno == ENOENT;
 }
 
+static FILE *cn_backend_open_file(const char *path, const char *mode) {
+#ifdef _WIN32
+    FILE *stream = NULL;
+    errno_t error = fopen_s(&stream, path, mode);
+    if (error != 0) {
+        return NULL;
+    }
+    return stream;
+#else
+    return fopen(path, mode);
+#endif
+}
+
 static bool cn_backend_create_temp_path(char *buffer, size_t buffer_size, const char *prefix) {
 #ifdef _WIN32
     char temp_dir[MAX_PATH + 1];
@@ -91,7 +104,7 @@ static bool cn_backend_write_ir_file(
         return false;
     }
 
-    stream = fopen(buffer, "wb");
+    stream = cn_backend_open_file(buffer, "wb");
     if (stream == NULL) {
         cn_backend_delete_file(buffer);
         cn_backend_emit_toolchain_error(diagnostics, "could not open temporary llvm ir file", buffer);

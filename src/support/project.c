@@ -18,6 +18,19 @@
 #define CN_PATH_SEPARATOR '/'
 #endif
 
+static FILE *cn_project_open_file(const char *path, const char *mode) {
+#ifdef _WIN32
+    FILE *file = NULL;
+    errno_t error = fopen_s(&file, path, mode);
+    if (error != 0) {
+        return NULL;
+    }
+    return file;
+#else
+    return fopen(path, mode);
+#endif
+}
+
 static void cn_project_reserve_modules(cn_project *project, size_t required) {
     if (project->module_capacity >= required) {
         return;
@@ -150,7 +163,7 @@ static char *cn_path_module_name(cn_allocator *allocator, const char *path) {
 }
 
 static bool cn_file_exists(const char *path) {
-    FILE *file = fopen(path, "rb");
+    FILE *file = cn_project_open_file(path, "rb");
     if (file == NULL) {
         return false;
     }

@@ -2,6 +2,19 @@
 
 #include <stdio.h>
 
+static FILE *cn_source_open_file(const char *path, const char *mode) {
+#ifdef _WIN32
+    FILE *file = NULL;
+    errno_t error = fopen_s(&file, path, mode);
+    if (error != 0) {
+        return NULL;
+    }
+    return file;
+#else
+    return fopen(path, mode);
+#endif
+}
+
 static size_t cn_count_lines(const char *text, size_t length) {
     size_t lines = 1;
     for (size_t i = 0; i < length; ++i) {
@@ -13,7 +26,7 @@ static size_t cn_count_lines(const char *text, size_t length) {
 }
 
 bool cn_source_load(cn_allocator *allocator, const char *path, cn_source *out_source, char *error_buffer, size_t error_buffer_size) {
-    FILE *file = fopen(path, "rb");
+    FILE *file = cn_source_open_file(path, "rb");
     if (file == NULL) {
         snprintf(error_buffer, error_buffer_size, "could not open '%s'", path);
         return false;

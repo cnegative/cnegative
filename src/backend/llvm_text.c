@@ -73,36 +73,35 @@ static bool cn_llvm_validate_block(cn_llvm_emit_ctx *ctx, const cn_ir_block *blo
 
 static const char *cn_llvm_host_target_triple(void) {
 #if defined(__x86_64__) || defined(_M_X64)
-#define CN_LLVM_TARGET_ARCH "x86_64"
-#elif defined(__aarch64__) || defined(_M_ARM64)
-#define CN_LLVM_TARGET_ARCH "aarch64"
-#else
-#define CN_LLVM_TARGET_ARCH NULL
-#endif
-
 #if defined(_WIN32)
 #if defined(__MINGW32__) || defined(__MINGW64__)
-#define CN_LLVM_TARGET_OS "w64-windows-gnu"
+    return "x86_64-w64-windows-gnu";
 #else
-#define CN_LLVM_TARGET_OS "pc-windows-msvc"
+    return "x86_64-pc-windows-msvc";
 #endif
 #elif defined(__APPLE__)
-#define CN_LLVM_TARGET_OS "apple-darwin"
+    return "x86_64-apple-darwin";
 #elif defined(__linux__)
-#define CN_LLVM_TARGET_OS "pc-linux-gnu"
+    return "x86_64-pc-linux-gnu";
 #else
-#define CN_LLVM_TARGET_OS NULL
+    return NULL;
 #endif
-
-    if (CN_LLVM_TARGET_ARCH == NULL || CN_LLVM_TARGET_OS == NULL) {
-        return NULL;
-    }
-
-    return CN_LLVM_TARGET_ARCH "-" CN_LLVM_TARGET_OS;
+#elif defined(__aarch64__) || defined(_M_ARM64)
+#if defined(__MINGW32__) || defined(__MINGW64__)
+    return "aarch64-w64-windows-gnu";
+#elif defined(_WIN32)
+    return "aarch64-pc-windows-msvc";
+#elif defined(__APPLE__)
+    return "aarch64-apple-darwin";
+#elif defined(__linux__)
+    return "aarch64-pc-linux-gnu";
+#else
+    return NULL;
+#endif
+#else
+    return NULL;
+#endif
 }
-
-#undef CN_LLVM_TARGET_ARCH
-#undef CN_LLVM_TARGET_OS
 
 static void cn_llvm_scope_release(cn_llvm_emit_ctx *ctx, cn_llvm_scope *scope) {
     cn_llvm_binding *binding = scope->bindings;
