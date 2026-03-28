@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  cmake-build-and-test:
+    name: ${{ matrix.os }} CMake
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - macos-15
+          - windows-2022
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Clang and LLVM on Linux
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm
+
+      - name: Install Clang and LLVM on macOS
+        if: runner.os == 'macOS'
+        run: |
+          brew install llvm
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+
+      - name: Install Clang and LLVM on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install llvm --yes --no-progress
+          "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Show tool versions
+        run: |
+          cmake --version
+          clang --version
+          if command -v llvm-as-18 >/dev/null 2>&1; then
+            llvm-as-18 --version
+          else
+            llvm-as --version
+          fi
+
+      - name: Configure
+        run: cmake -S . -B out
+
+      - name: Build
+        run: cmake --build out --config Release
+
+      - name: Test
+        run: ctest --test-dir out --output-on-failure -C Release
+
+      - name: Upload compiler artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cnegc-${{ matrix.os }}
+          path: |
+            out/build/cnegc
+            out/build/cnegc.exe
+            out/build/Release/cnegc
+            out/build/Release/cnegc.exe
+          if-no-files-found: error
+
+  make-build-and-test:
+    name: ubuntu-24.04 Make
+    runs-on: ubuntu-24.04
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Clang and LLVM
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm
+
+      - name: Show tool versions
+        run: |
+          make --version
+          clang --version
+          if command -v llvm-as-18 >/dev/null 2>&1; then
+            llvm-as-18 --version
+          else
+            llvm-as --version
+          fi
+
+      - name: Build and test
+        run: make test
+
+      - name: Upload compiler artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cnegc-ubuntu-24.04-make
+          path: build/cnegc
+          if-no-files-found: error

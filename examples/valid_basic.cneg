@@ -1,0 +1,12 @@
+fn:int add(a:int, b:int) {
+    return a + b;
+}
+
+fn:int main() {
+    let x:int = 7;
+    if x > 5 {
+        print(x);
+    }
+
+    return add(x, 1);
+}

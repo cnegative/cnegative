@@ -1,0 +1,13 @@
+struct Secret {
+    value:int;
+}
+
+pfn:Secret leak() {
+    return Secret {
+        value:7
+    };
+}
+
+fn:int main() {
+    return 0;
+}

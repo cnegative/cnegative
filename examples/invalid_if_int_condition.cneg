@@ -1,0 +1,8 @@
+fn:int main() {
+    let x:int = 7;
+    if x {
+        1;
+    }
+
+    0;
+}

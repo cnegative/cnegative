@@ -1,0 +1,9 @@
+import hidden;
+
+fn:int main() {
+    let secret:hidden.Secret = hidden.Secret {
+        value:1
+    };
+
+    return secret.value;
+}

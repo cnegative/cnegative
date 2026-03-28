@@ -1,0 +1,4 @@
+fn:int main() {
+    print("hello from cnegative");
+    return 0;
+}

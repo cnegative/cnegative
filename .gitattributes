@@ -1,0 +1,4 @@
+*.md linguist-documentation
+docs/** linguist-documentation
+examples/** linguist-documentation
+*.cneg linguist-language=C

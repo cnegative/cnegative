@@ -1,0 +1,12 @@
+fn:result int choose(x:int) {
+    if x > 0 {
+        return ok x;
+    }
+
+    return err;
+}
+
+fn:int main() {
+    let r:result int = choose(3);
+    return r.value;
+}

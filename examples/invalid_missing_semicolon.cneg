@@ -1,0 +1,4 @@
+fn:int main() {
+    let x:int = 1
+    x;
+}

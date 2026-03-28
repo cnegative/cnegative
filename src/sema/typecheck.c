@@ -1,0 +1,1394 @@
+#include "cnegative/sema.h"
+
+#include <stdio.h>
+
+typedef struct cn_binding {
+    cn_strview name;
+    const cn_type_ref *type;
+    bool is_mutable;
+    struct cn_binding *next;
+} cn_binding;
+
+typedef struct cn_result_guard {
+    cn_strview name;
+    struct cn_result_guard *next;
+} cn_result_guard;
+
+typedef struct cn_scope {
+    cn_binding *bindings;
+    cn_result_guard *result_guards;
+    struct cn_scope *parent;
+} cn_scope;
+
+typedef struct cn_temp_type {
+    cn_type_ref *type;
+    struct cn_temp_type *next;
+} cn_temp_type;
+
+typedef struct cn_resolved_struct {
+    const cn_module *module;
+    const cn_struct_decl *decl;
+} cn_resolved_struct;
+
+typedef struct cn_sema_ctx {
+    const cn_project *project;
+    const cn_module *module;
+    cn_diag_bag *diagnostics;
+    cn_allocator *allocator;
+    const cn_function *current_function;
+    cn_temp_type *temp_types;
+} cn_sema_ctx;
+
+typedef struct cn_assignment_target {
+    const cn_type_ref *type;
+    bool requires_mutable_binding;
+    cn_strview binding_name;
+} cn_assignment_target;
+
+static const cn_type_ref g_type_int = {CN_TYPE_INT, {NULL, 0}, {NULL, 0}, NULL, 0, 0};
+static const cn_type_ref g_type_bool = {CN_TYPE_BOOL, {NULL, 0}, {NULL, 0}, NULL, 0, 0};
+static const cn_type_ref g_type_str = {CN_TYPE_STR, {NULL, 0}, {NULL, 0}, NULL, 0, 0};
+static const cn_type_ref g_type_void = {CN_TYPE_VOID, {NULL, 0}, {NULL, 0}, NULL, 0, 0};
+static const cn_type_ref g_type_unknown = {CN_TYPE_UNKNOWN, {NULL, 0}, {NULL, 0}, NULL, 0, 0};
+
+static const cn_type_ref *cn_builtin_type(cn_type_kind kind) {
+    switch (kind) {
+    case CN_TYPE_INT: return &g_type_int;
+    case CN_TYPE_BOOL: return &g_type_bool;
+    case CN_TYPE_STR: return &g_type_str;
+    case CN_TYPE_VOID: return &g_type_void;
+    default: return &g_type_unknown;
+    }
+}
+
+static bool cn_name_eq(cn_strview left, cn_strview right) {
+    return cn_sv_eq(left, right);
+}
+
+static const cn_function *cn_find_local_function(const cn_module *module, cn_strview name) {
+    for (size_t i = 0; i < module->program->function_count; ++i) {
+        if (cn_name_eq(module->program->functions[i]->name, name)) {
+            return module->program->functions[i];
+        }
+    }
+    return NULL;
+}
+
+static const cn_function *cn_find_public_function(const cn_module *module, cn_strview name) {
+    for (size_t i = 0; i < module->program->function_count; ++i) {
+        if (module->program->functions[i]->is_public && cn_name_eq(module->program->functions[i]->name, name)) {
+            return module->program->functions[i];
+        }
+    }
+    return NULL;
+}
+
+static const cn_struct_decl *cn_find_struct(const cn_module *module, cn_strview name) {
+    for (size_t i = 0; i < module->program->struct_count; ++i) {
+        if (cn_name_eq(module->program->structs[i]->name, name)) {
+            return module->program->structs[i];
+        }
+    }
+    return NULL;
+}
+
+static const cn_struct_decl *cn_find_public_struct(const cn_module *module, cn_strview name) {
+    for (size_t i = 0; i < module->program->struct_count; ++i) {
+        if (module->program->structs[i]->is_public && cn_name_eq(module->program->structs[i]->name, name)) {
+            return module->program->structs[i];
+        }
+    }
+    return NULL;
+}
+
+static const cn_module *cn_find_imported_module(const cn_module *module, cn_strview name);
+
+static const cn_module *cn_resolve_source_named_module(cn_sema_ctx *ctx, cn_strview module_name) {
+    if (module_name.length == 0 || cn_sv_eq_cstr(module_name, ctx->module->name)) {
+        return ctx->module;
+    }
+
+    return cn_find_imported_module(ctx->module, module_name);
+}
+
+static const cn_module *cn_resolve_canonical_named_module(cn_sema_ctx *ctx, cn_strview module_name) {
+    if (module_name.length == 0 || cn_sv_eq_cstr(module_name, ctx->module->name)) {
+        return ctx->module;
+    }
+
+    const cn_module *project_module = cn_project_find_module_by_name(ctx->project, module_name);
+    if (project_module != NULL) {
+        return project_module;
+    }
+
+    return cn_find_imported_module(ctx->module, module_name);
+}
+
+static cn_resolved_struct cn_resolve_struct_in_module(const cn_module *module, cn_strview type_name) {
+    cn_resolved_struct result;
+    result.module = NULL;
+    result.decl = NULL;
+
+    if (module == NULL || module->program == NULL) {
+        return result;
+    }
+
+    result.module = module;
+    result.decl = cn_find_struct(module, type_name);
+    if (result.decl == NULL) {
+        result.module = NULL;
+    }
+    return result;
+}
+
+static cn_resolved_struct cn_resolve_source_named_struct(cn_sema_ctx *ctx, cn_strview module_name, cn_strview type_name) {
+    const cn_module *module = cn_resolve_source_named_module(ctx, module_name);
+    if (module == NULL) {
+        return cn_resolve_struct_in_module(NULL, type_name);
+    }
+
+    if (module == ctx->module) {
+        return cn_resolve_struct_in_module(module, type_name);
+    }
+
+    cn_resolved_struct result;
+    result.module = module;
+    result.decl = cn_find_public_struct(module, type_name);
+    if (result.decl == NULL) {
+        result.module = NULL;
+    }
+    return result;
+}
+
+static cn_resolved_struct cn_resolve_canonical_named_struct(cn_sema_ctx *ctx, cn_strview module_name, cn_strview type_name) {
+    return cn_resolve_struct_in_module(cn_resolve_canonical_named_module(ctx, module_name), type_name);
+}
+
+static const cn_import_decl *cn_find_import_decl(const cn_module *module, cn_strview name, size_t *out_index) {
+    for (size_t i = 0; i < module->program->import_count; ++i) {
+        if (cn_name_eq(module->program->imports[i].alias, name) || cn_name_eq(module->program->imports[i].module_name, name)) {
+            if (out_index != NULL) {
+                *out_index = i;
+            }
+            return &module->program->imports[i];
+        }
+    }
+    return NULL;
+}
+
+static const cn_module *cn_find_imported_module(const cn_module *module, cn_strview name) {
+    size_t index = 0;
+    if (cn_find_import_decl(module, name, &index) == NULL) {
+        return NULL;
+    }
+
+    if (index >= module->import_count) {
+        return NULL;
+    }
+
+    return module->imports[index];
+}
+
+static const cn_struct_field *cn_find_struct_field(const cn_struct_decl *struct_decl, cn_strview field_name, size_t *out_index) {
+    for (size_t i = 0; i < struct_decl->fields.count; ++i) {
+        if (cn_name_eq(struct_decl->fields.items[i].name, field_name)) {
+            if (out_index != NULL) {
+                *out_index = i;
+            }
+            return &struct_decl->fields.items[i];
+        }
+    }
+    return NULL;
+}
+
+static const cn_binding *cn_scope_lookup(const cn_scope *scope, cn_strview name) {
+    for (const cn_scope *cursor = scope; cursor != NULL; cursor = cursor->parent) {
+        for (const cn_binding *binding = cursor->bindings; binding != NULL; binding = binding->next) {
+            if (cn_name_eq(binding->name, name)) {
+                return binding;
+            }
+        }
+    }
+    return NULL;
+}
+
+static bool cn_scope_result_is_ok(const cn_scope *scope, cn_strview name) {
+    for (const cn_scope *cursor = scope; cursor != NULL; cursor = cursor->parent) {
+        for (const cn_result_guard *guard = cursor->result_guards; guard != NULL; guard = guard->next) {
+            if (cn_name_eq(guard->name, name)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static void cn_scope_mark_result_ok(cn_sema_ctx *ctx, cn_scope *scope, cn_strview name) {
+    for (const cn_result_guard *guard = scope->result_guards; guard != NULL; guard = guard->next) {
+        if (cn_name_eq(guard->name, name)) {
+            return;
+        }
+    }
+
+    cn_result_guard *guard = CN_ALLOC(ctx->allocator, cn_result_guard);
+    guard->name = name;
+    guard->next = scope->result_guards;
+    scope->result_guards = guard;
+}
+
+static bool cn_scope_define(cn_sema_ctx *ctx, cn_scope *scope, cn_strview name, const cn_type_ref *type, bool is_mutable, size_t offset) {
+    for (const cn_binding *binding = scope->bindings; binding != NULL; binding = binding->next) {
+        if (cn_name_eq(binding->name, name)) {
+            cn_diag_emit(
+                ctx->diagnostics,
+                CN_DIAG_ERROR,
+                "E3003",
+                offset,
+                "duplicate local binding '%.*s'",
+                (int)name.length,
+                name.data
+            );
+            return false;
+        }
+    }
+
+    cn_binding *binding = CN_ALLOC(ctx->allocator, cn_binding);
+    binding->name = name;
+    binding->type = type;
+    binding->is_mutable = is_mutable;
+    binding->next = scope->bindings;
+    scope->bindings = binding;
+    return true;
+}
+
+static void cn_scope_release(cn_sema_ctx *ctx, cn_scope *scope) {
+    cn_binding *binding = scope->bindings;
+    while (binding != NULL) {
+        cn_binding *next = binding->next;
+        CN_FREE(ctx->allocator, binding);
+        binding = next;
+    }
+    scope->bindings = NULL;
+
+    cn_result_guard *guard = scope->result_guards;
+    while (guard != NULL) {
+        cn_result_guard *next = guard->next;
+        CN_FREE(ctx->allocator, guard);
+        guard = next;
+    }
+    scope->result_guards = NULL;
+}
+
+static void cn_temp_types_release(cn_sema_ctx *ctx) {
+    cn_temp_type *node = ctx->temp_types;
+    while (node != NULL) {
+        cn_temp_type *next = node->next;
+        CN_FREE(ctx->allocator, node->type);
+        CN_FREE(ctx->allocator, node);
+        node = next;
+    }
+    ctx->temp_types = NULL;
+}
+
+static const cn_type_ref *cn_make_temp_type(
+    cn_sema_ctx *ctx,
+    cn_type_kind kind,
+    cn_strview module_name,
+    cn_strview name,
+    const cn_type_ref *inner,
+    size_t array_size,
+    size_t offset
+) {
+    cn_type_ref *type = CN_ALLOC(ctx->allocator, cn_type_ref);
+    type->kind = kind;
+    type->module_name = module_name;
+    type->name = name;
+    type->inner = (cn_type_ref *)inner;
+    type->array_size = array_size;
+    type->offset = offset;
+
+    cn_temp_type *node = CN_ALLOC(ctx->allocator, cn_temp_type);
+    node->type = type;
+    node->next = ctx->temp_types;
+    ctx->temp_types = node;
+    return type;
+}
+
+static void cn_emit_type_mismatch(cn_diag_bag *diagnostics, size_t offset, const char *message, const cn_type_ref *expected, const cn_type_ref *actual) {
+    char expected_name[128];
+    char actual_name[128];
+    cn_type_describe(expected, expected_name, sizeof(expected_name));
+    cn_type_describe(actual, actual_name, sizeof(actual_name));
+    cn_diag_emit(diagnostics, CN_DIAG_ERROR, "E3004", offset, "%s: expected %s, got %s", message, expected_name, actual_name);
+}
+
+static bool cn_validate_type_ref(cn_sema_ctx *ctx, const cn_type_ref *type, size_t offset) {
+    if (type == NULL) {
+        return false;
+    }
+
+    switch (type->kind) {
+    case CN_TYPE_INT:
+    case CN_TYPE_BOOL:
+    case CN_TYPE_STR:
+    case CN_TYPE_VOID:
+    case CN_TYPE_UNKNOWN:
+        return true;
+    case CN_TYPE_RESULT:
+    case CN_TYPE_PTR:
+    case CN_TYPE_ARRAY:
+        return cn_validate_type_ref(ctx, type->inner, offset);
+    case CN_TYPE_NAMED: {
+        cn_resolved_struct resolved = cn_resolve_source_named_struct(ctx, type->module_name, type->name);
+        if (resolved.decl == NULL) {
+            cn_diag_emit(
+                ctx->diagnostics,
+                CN_DIAG_ERROR,
+                "E3012",
+                offset,
+                "unknown type '%.*s%.*s%.*s'",
+                (int)type->module_name.length,
+                type->module_name.data != NULL ? type->module_name.data : "",
+                (int)(type->module_name.length > 0),
+                type->module_name.length > 0 ? "." : "",
+                (int)type->name.length,
+                type->name.data
+            );
+            return false;
+        }
+
+        ((cn_type_ref *)type)->module_name = cn_sv_from_cstr(resolved.module->name);
+        return true;
+    }
+    }
+
+    return false;
+}
+
+static bool cn_type_is_exportable(cn_sema_ctx *ctx, const cn_type_ref *type) {
+    if (type == NULL) {
+        return false;
+    }
+
+    switch (type->kind) {
+    case CN_TYPE_INT:
+    case CN_TYPE_BOOL:
+    case CN_TYPE_STR:
+    case CN_TYPE_VOID:
+        return true;
+    case CN_TYPE_RESULT:
+    case CN_TYPE_PTR:
+    case CN_TYPE_ARRAY:
+        return cn_type_is_exportable(ctx, type->inner);
+    case CN_TYPE_NAMED: {
+        cn_resolved_struct resolved = cn_resolve_canonical_named_struct(ctx, type->module_name, type->name);
+        if (resolved.decl == NULL) {
+            return false;
+        }
+        if (resolved.module != ctx->module) {
+            return resolved.decl->is_public;
+        }
+        return resolved.decl->is_public;
+    }
+    case CN_TYPE_UNKNOWN:
+        return false;
+    }
+
+    return false;
+}
+
+static void cn_emit_private_type_in_public_api(
+    cn_sema_ctx *ctx,
+    size_t offset,
+    const char *subject_kind,
+    cn_strview subject_name,
+    const cn_type_ref *type
+) {
+    char type_name[128];
+    cn_type_describe(type, type_name, sizeof(type_name));
+    cn_diag_emit(
+        ctx->diagnostics,
+        CN_DIAG_ERROR,
+        "E3023",
+        offset,
+        "public %s '%.*s' cannot expose private type '%s'",
+        subject_kind,
+        (int)subject_name.length,
+        subject_name.data,
+        type_name
+    );
+}
+
+static bool cn_extract_result_ok_guard(const cn_expr *expression, cn_strview *out_name, bool *out_positive) {
+    const cn_expr *guard = expression;
+    bool is_positive = true;
+
+    if (guard->kind == CN_EXPR_UNARY && guard->data.unary.op == CN_UNARY_NOT) {
+        guard = guard->data.unary.operand;
+        is_positive = false;
+    }
+
+    if (guard->kind != CN_EXPR_FIELD || !cn_sv_eq_cstr(guard->data.field.field_name, "ok")) {
+        return false;
+    }
+
+    if (guard->data.field.base->kind != CN_EXPR_NAME) {
+        return false;
+    }
+
+    *out_name = guard->data.field.base->data.name;
+    *out_positive = is_positive;
+    return true;
+}
+
+static const cn_type_ref *cn_check_expression_hint(cn_sema_ctx *ctx, cn_scope *scope, const cn_expr *expression, const cn_type_ref *expected);
+static bool cn_check_block(cn_sema_ctx *ctx, cn_scope *parent, const cn_block *block, bool creates_scope);
+static bool cn_check_block_with_guard(
+    cn_sema_ctx *ctx,
+    cn_scope *parent,
+    const cn_block *block,
+    bool creates_scope,
+    cn_strview guard_name,
+    bool has_guard
+);
+
+static const cn_type_ref *cn_check_array_literal(cn_sema_ctx *ctx, cn_scope *scope, const cn_expr *expression, const cn_type_ref *expected) {
+    const cn_type_ref *element_expected = NULL;
+    const cn_type_ref *result_type = NULL;
+
+    if (expected != NULL && expected->kind == CN_TYPE_ARRAY) {
+        result_type = expected;
+        element_expected = expected->inner;
+        if (expression->data.array_literal.items.count != expected->array_size) {
+            cn_diag_emit(
+                ctx->diagnostics,
+                CN_DIAG_ERROR,
+                "E3011",
+                expression->offset,
+                "array literal size mismatch: expected %zu items, got %zu",
+                expected->array_size,
+                expression->data.array_literal.items.count
+            );
+        }
+    }
+
+    const cn_type_ref *element_type = element_expected;
+    for (size_t i = 0; i < expression->data.array_literal.items.count; ++i) {
+        const cn_expr *item = expression->data.array_literal.items.items[i];
+        const cn_type_ref *item_type = cn_check_expression_hint(ctx, scope, item, element_expected);
+        if (element_type == NULL && item_type->kind != CN_TYPE_UNKNOWN) {
+            element_type = item_type;
+        } else if (element_type != NULL && item_type->kind != CN_TYPE_UNKNOWN && !cn_type_equal(element_type, item_type)) {
+            cn_emit_type_mismatch(ctx->diagnostics, item->offset, "array element type mismatch", element_type, item_type);
+        }
+    }
+
+    if (result_type != NULL) {
+        return result_type;
+    }
+
+    if (element_type == NULL) {
+        element_type = cn_builtin_type(CN_TYPE_UNKNOWN);
+    }
+
+    return cn_make_temp_type(
+        ctx,
+        CN_TYPE_ARRAY,
+        cn_sv_from_parts(NULL, 0),
+        cn_sv_from_parts(NULL, 0),
+        element_type,
+        expression->data.array_literal.items.count,
+        expression->offset
+    );
+}
+
+static const cn_type_ref *cn_check_struct_literal(cn_sema_ctx *ctx, cn_scope *scope, const cn_expr *expression) {
+    cn_resolved_struct resolved = cn_resolve_source_named_struct(
+        ctx,
+        expression->data.struct_literal.module_name,
+        expression->data.struct_literal.type_name
+    );
+    const cn_struct_decl *struct_decl = resolved.decl;
+    if (struct_decl == NULL) {
+        cn_diag_emit(
+            ctx->diagnostics,
+            CN_DIAG_ERROR,
+            "E3012",
+            expression->offset,
+            "unknown struct '%.*s%.*s%.*s'",
+            (int)expression->data.struct_literal.module_name.length,
+            expression->data.struct_literal.module_name.data != NULL ? expression->data.struct_literal.module_name.data : "",
+            (int)(expression->data.struct_literal.module_name.length > 0),
+            expression->data.struct_literal.module_name.length > 0 ? "." : "",
+            (int)expression->data.struct_literal.type_name.length,
+            expression->data.struct_literal.type_name.data
+        );
+        return cn_builtin_type(CN_TYPE_UNKNOWN);
+    }
+
+    bool *seen = CN_CALLOC(ctx->allocator, bool, struct_decl->fields.count);
+    for (size_t i = 0; i < expression->data.struct_literal.fields.count; ++i) {
+        const cn_field_init *field_init = &expression->data.struct_literal.fields.items[i];
+        size_t field_index = 0;
+        const cn_struct_field *field = cn_find_struct_field(struct_decl, field_init->name, &field_index);
+        if (field == NULL) {
+            cn_diag_emit(
+                ctx->diagnostics,
+                CN_DIAG_ERROR,
+                "E3009",
+                field_init->offset,
+                "unknown field '%.*s' on struct '%.*s'",
+                (int)field_init->name.length,
+                field_init->name.data,
+                (int)struct_decl->name.length,
+                struct_decl->name.data
+            );
+            continue;
+        }
+
+        if (seen[field_index]) {
+            cn_diag_emit(
+                ctx->diagnostics,
+                CN_DIAG_ERROR,
+                "E3003",
+                field_init->offset,
+                "duplicate field initializer '%.*s'",
+                (int)field_init->name.length,
+                field_init->name.data
+            );
+            continue;
+        }
+
+        seen[field_index] = true;
+        const cn_type_ref *value_type = cn_check_expression_hint(ctx, scope, field_init->value, field->type);
+        if (!cn_type_equal(field->type, value_type)) {
+            cn_emit_type_mismatch(ctx->diagnostics, field_init->offset, "struct field type mismatch", field->type, value_type);
+        }
+    }
+
+    for (size_t i = 0; i < struct_decl->fields.count; ++i) {
+        if (!seen[i]) {
+            cn_diag_emit(
+                ctx->diagnostics,
+                CN_DIAG_ERROR,
+                "E3004",
+                expression->offset,
+                "missing field '%.*s' in struct literal '%.*s'",
+                (int)struct_decl->fields.items[i].name.length,
+                struct_decl->fields.items[i].name.data,
+                (int)struct_decl->name.length,
+                struct_decl->name.data
+            );
+        }
+    }
+
+    CN_FREE(ctx->allocator, seen);
+    return cn_make_temp_type(
+        ctx,
+        CN_TYPE_NAMED,
+        cn_sv_from_cstr(resolved.module->name),
+        struct_decl->name,
+        NULL,
+        0,
+        expression->offset
+    );
+}
+
+static const cn_type_ref *cn_check_field_access(cn_sema_ctx *ctx, cn_scope *scope, const cn_expr *expression) {
+    if (expression->data.field.base->kind == CN_EXPR_NAME) {
+        const cn_module *imported = cn_find_imported_module(ctx->module, expression->data.field.base->data.name);
+        if (imported != NULL) {
+            cn_diag_emit(
+                ctx->diagnostics,
+                CN_DIAG_ERROR,
+                "E3014",
+                expression->offset,
+                "module member access is only valid in a call like module.function(...)"
+            );
+            return cn_builtin_type(CN_TYPE_UNKNOWN);
+        }
+    }
+
+    const cn_type_ref *base_type = cn_check_expression_hint(ctx, scope, expression->data.field.base, NULL);
+
+    if (base_type->kind == CN_TYPE_PTR) {
+        if (cn_sv_eq_cstr(expression->data.field.field_name, "value")) {
+            return base_type->inner;
+        }
+
+        cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3009", expression->offset, "pointer values only expose '.value'; use 'deref value' for explicit dereference");
+        return cn_builtin_type(CN_TYPE_UNKNOWN);
+    }
+
+    if (base_type->kind == CN_TYPE_RESULT) {
+        if (cn_sv_eq_cstr(expression->data.field.field_name, "ok")) {
+            return cn_builtin_type(CN_TYPE_BOOL);
+        }
+        if (cn_sv_eq_cstr(expression->data.field.field_name, "value")) {
+            if (expression->data.field.base->kind != CN_EXPR_NAME ||
+                !cn_scope_result_is_ok(scope, expression->data.field.base->data.name)) {
+                cn_diag_emit(
+                    ctx->diagnostics,
+                    CN_DIAG_ERROR,
+                    "E3024",
+                    expression->offset,
+                    "result '.value' requires a proven-ok named result in this scope"
+                );
+            }
+            return base_type->inner;
+        }
+
+        cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3009", expression->offset, "result values only expose '.ok' and '.value'");
+        return cn_builtin_type(CN_TYPE_UNKNOWN);
+    }
+
+    if (base_type->kind != CN_TYPE_NAMED) {
+        cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3009", expression->offset, "field access requires a struct value");
+        return cn_builtin_type(CN_TYPE_UNKNOWN);
+    }
+
+    cn_resolved_struct resolved = cn_resolve_canonical_named_struct(ctx, base_type->module_name, base_type->name);
+    const cn_struct_decl *struct_decl = resolved.decl;
+    if (struct_decl == NULL) {
+        cn_diag_emit(
+            ctx->diagnostics,
+            CN_DIAG_ERROR,
+            "E3009",
+            expression->offset,
+            "type '%.*s' does not support field access",
+            (int)base_type->name.length,
+            base_type->name.data
+        );
+        return cn_builtin_type(CN_TYPE_UNKNOWN);
+    }
+
+    const cn_struct_field *field = cn_find_struct_field(struct_decl, expression->data.field.field_name, NULL);
+    if (field == NULL) {
+        cn_diag_emit(
+            ctx->diagnostics,
+            CN_DIAG_ERROR,
+            "E3009",
+            expression->offset,
+            "unknown field '%.*s' on struct '%.*s'",
+            (int)expression->data.field.field_name.length,
+            expression->data.field.field_name.data,
+            (int)struct_decl->name.length,
+            struct_decl->name.data
+        );
+        return cn_builtin_type(CN_TYPE_UNKNOWN);
+    }
+
+    return field->type;
+}
+
+static const cn_type_ref *cn_check_index(cn_sema_ctx *ctx, cn_scope *scope, const cn_expr *expression) {
+    const cn_type_ref *base_type = cn_check_expression_hint(ctx, scope, expression->data.index.base, NULL);
+    const cn_type_ref *index_type = cn_check_expression_hint(ctx, scope, expression->data.index.index, cn_builtin_type(CN_TYPE_INT));
+
+    if (!cn_type_equal(index_type, cn_builtin_type(CN_TYPE_INT))) {
+        cn_emit_type_mismatch(ctx->diagnostics, expression->data.index.index->offset, "array index must be int", cn_builtin_type(CN_TYPE_INT), index_type);
+    }
+
+    if (base_type->kind != CN_TYPE_ARRAY) {
+        cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3010", expression->offset, "indexing requires an array value");
+        return cn_builtin_type(CN_TYPE_UNKNOWN);
+    }
+
+    return base_type->inner;
+}
+
+static void cn_check_call_arguments(
+    cn_sema_ctx *ctx,
+    cn_scope *scope,
+    const cn_expr *expression,
+    const cn_function *function
+) {
+    if (function->parameters.count != expression->data.call.arguments.count) {
+        cn_diag_emit(
+            ctx->diagnostics,
+            CN_DIAG_ERROR,
+            "E3008",
+            expression->offset,
+            "function '%.*s' expects %zu arguments, got %zu",
+            (int)function->name.length,
+            function->name.data,
+            function->parameters.count,
+            expression->data.call.arguments.count
+        );
+    }
+
+    size_t arg_count = expression->data.call.arguments.count;
+    if (function->parameters.count < arg_count) {
+        arg_count = function->parameters.count;
+    }
+
+    for (size_t i = 0; i < arg_count; ++i) {
+        const cn_type_ref *actual = cn_check_expression_hint(ctx, scope, expression->data.call.arguments.items[i], function->parameters.items[i].type);
+        if (!cn_type_equal(function->parameters.items[i].type, actual)) {
+            cn_emit_type_mismatch(ctx->diagnostics, expression->data.call.arguments.items[i]->offset, "argument type mismatch", function->parameters.items[i].type, actual);
+        }
+    }
+}
+
+static const cn_type_ref *cn_check_call(cn_sema_ctx *ctx, cn_scope *scope, const cn_expr *expression) {
+    if (expression->data.call.callee->kind == CN_EXPR_NAME) {
+        cn_strview callee = expression->data.call.callee->data.name;
+
+        if (cn_sv_eq_cstr(callee, "print")) {
+            if (expression->data.call.arguments.count != 1) {
+                cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3008", expression->offset, "print expects exactly 1 argument");
+            } else {
+                cn_check_expression_hint(ctx, scope, expression->data.call.arguments.items[0], NULL);
+            }
+            return cn_builtin_type(CN_TYPE_VOID);
+        }
+
+        if (cn_sv_eq_cstr(callee, "input")) {
+            if (expression->data.call.arguments.count != 0) {
+                cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3008", expression->offset, "input expects 0 arguments");
+            }
+            return cn_builtin_type(CN_TYPE_STR);
+        }
+
+        if (cn_find_imported_module(ctx->module, callee) != NULL) {
+            cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3014", expression->offset, "module names are not callable; use module.function(...)");
+            return cn_builtin_type(CN_TYPE_UNKNOWN);
+        }
+
+        const cn_function *function = cn_find_local_function(ctx->module, callee);
+        if (function == NULL) {
+            cn_diag_emit(
+                ctx->diagnostics,
+                CN_DIAG_ERROR,
+                "E3002",
+                expression->offset,
+                "unknown function '%.*s'",
+                (int)callee.length,
+                callee.data
+            );
+            return cn_builtin_type(CN_TYPE_UNKNOWN);
+        }
+
+        cn_check_call_arguments(ctx, scope, expression, function);
+        return function->return_type;
+    }
+
+    if (expression->data.call.callee->kind == CN_EXPR_FIELD && expression->data.call.callee->data.field.base->kind == CN_EXPR_NAME) {
+        cn_strview module_name = expression->data.call.callee->data.field.base->data.name;
+        cn_strview function_name = expression->data.call.callee->data.field.field_name;
+        const cn_module *imported = cn_find_imported_module(ctx->module, module_name);
+
+        if (imported == NULL) {
+            cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3014", expression->offset, "call target must be a function name or imported module function");
+            return cn_builtin_type(CN_TYPE_UNKNOWN);
+        }
+
+        const cn_function *function = cn_find_public_function(imported, function_name);
+        if (function == NULL) {
+            cn_diag_emit(
+                ctx->diagnostics,
+                CN_DIAG_ERROR,
+                "E3002",
+                expression->offset,
+                "module '%s' does not export function '%.*s'",
+                imported->name,
+                (int)function_name.length,
+                function_name.data
+            );
+            return cn_builtin_type(CN_TYPE_UNKNOWN);
+        }
+
+        cn_check_call_arguments(ctx, scope, expression, function);
+        return function->return_type;
+    }
+
+    cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3014", expression->offset, "call target must be a function name or imported module function");
+    for (size_t i = 0; i < expression->data.call.arguments.count; ++i) {
+        cn_check_expression_hint(ctx, scope, expression->data.call.arguments.items[i], NULL);
+    }
+    return cn_builtin_type(CN_TYPE_UNKNOWN);
+}
+
+static const cn_type_ref *cn_check_address_of(cn_sema_ctx *ctx, cn_scope *scope, const cn_expr *expression) {
+    const cn_expr *target = expression->data.addr_expr.target;
+    if (target->kind != CN_EXPR_NAME && target->kind != CN_EXPR_FIELD && target->kind != CN_EXPR_INDEX && target->kind != CN_EXPR_DEREF) {
+        cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3004", expression->offset, "address-of target must be a named value, dereference, field, or array element");
+        return cn_builtin_type(CN_TYPE_UNKNOWN);
+    }
+
+    const cn_type_ref *target_type = cn_check_expression_hint(ctx, scope, target, NULL);
+    return cn_make_temp_type(
+        ctx,
+        CN_TYPE_PTR,
+        cn_sv_from_parts(NULL, 0),
+        cn_sv_from_parts(NULL, 0),
+        target_type,
+        0,
+        expression->offset
+    );
+}
+
+static const cn_type_ref *cn_check_expression_hint(cn_sema_ctx *ctx, cn_scope *scope, const cn_expr *expression, const cn_type_ref *expected) {
+    switch (expression->kind) {
+    case CN_EXPR_INT:
+        return cn_builtin_type(CN_TYPE_INT);
+    case CN_EXPR_BOOL:
+        return cn_builtin_type(CN_TYPE_BOOL);
+    case CN_EXPR_STRING:
+        return cn_builtin_type(CN_TYPE_STR);
+    case CN_EXPR_NAME: {
+        const cn_binding *binding = cn_scope_lookup(scope, expression->data.name);
+        if (binding == NULL) {
+            if (cn_find_imported_module(ctx->module, expression->data.name) != NULL) {
+                cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3014", expression->offset, "module names are not values yet");
+            } else {
+                cn_diag_emit(
+                    ctx->diagnostics,
+                    CN_DIAG_ERROR,
+                    "E3002",
+                    expression->offset,
+                    "unknown name '%.*s'",
+                    (int)expression->data.name.length,
+                    expression->data.name.data
+                );
+            }
+            return cn_builtin_type(CN_TYPE_UNKNOWN);
+        }
+        return binding->type;
+    }
+    case CN_EXPR_UNARY: {
+        const cn_type_ref *operand_type = cn_check_expression_hint(ctx, scope, expression->data.unary.operand, NULL);
+        if (expression->data.unary.op == CN_UNARY_NEGATE) {
+            if (!cn_type_equal(operand_type, cn_builtin_type(CN_TYPE_INT))) {
+                cn_emit_type_mismatch(ctx->diagnostics, expression->offset, "unary '-' requires int", cn_builtin_type(CN_TYPE_INT), operand_type);
+            }
+            return cn_builtin_type(CN_TYPE_INT);
+        }
+
+        if (!cn_type_equal(operand_type, cn_builtin_type(CN_TYPE_BOOL))) {
+            cn_emit_type_mismatch(ctx->diagnostics, expression->offset, "unary '!' requires bool", cn_builtin_type(CN_TYPE_BOOL), operand_type);
+        }
+        return cn_builtin_type(CN_TYPE_BOOL);
+    }
+    case CN_EXPR_BINARY: {
+        const cn_type_ref *left = cn_check_expression_hint(ctx, scope, expression->data.binary.left, NULL);
+        const cn_type_ref *right = cn_check_expression_hint(ctx, scope, expression->data.binary.right, NULL);
+
+        switch (expression->data.binary.op) {
+        case CN_BINARY_ADD:
+        case CN_BINARY_SUB:
+        case CN_BINARY_MUL:
+        case CN_BINARY_DIV:
+            if (!cn_type_equal(left, cn_builtin_type(CN_TYPE_INT))) {
+                cn_emit_type_mismatch(ctx->diagnostics, expression->offset, "arithmetic operator requires int", cn_builtin_type(CN_TYPE_INT), left);
+            }
+            if (!cn_type_equal(right, cn_builtin_type(CN_TYPE_INT))) {
+                cn_emit_type_mismatch(ctx->diagnostics, expression->offset, "arithmetic operator requires int", cn_builtin_type(CN_TYPE_INT), right);
+            }
+            return cn_builtin_type(CN_TYPE_INT);
+        case CN_BINARY_EQUAL:
+        case CN_BINARY_NOT_EQUAL:
+            if (!cn_type_equal(left, right)) {
+                cn_emit_type_mismatch(ctx->diagnostics, expression->offset, "equality operands must match", left, right);
+            }
+            return cn_builtin_type(CN_TYPE_BOOL);
+        case CN_BINARY_LESS:
+        case CN_BINARY_LESS_EQUAL:
+        case CN_BINARY_GREATER:
+        case CN_BINARY_GREATER_EQUAL:
+            if (!cn_type_equal(left, cn_builtin_type(CN_TYPE_INT))) {
+                cn_emit_type_mismatch(ctx->diagnostics, expression->offset, "comparison operator requires int", cn_builtin_type(CN_TYPE_INT), left);
+            }
+            if (!cn_type_equal(right, cn_builtin_type(CN_TYPE_INT))) {
+                cn_emit_type_mismatch(ctx->diagnostics, expression->offset, "comparison operator requires int", cn_builtin_type(CN_TYPE_INT), right);
+            }
+            return cn_builtin_type(CN_TYPE_BOOL);
+        case CN_BINARY_AND:
+        case CN_BINARY_OR:
+            if (!cn_type_equal(left, cn_builtin_type(CN_TYPE_BOOL))) {
+                cn_emit_type_mismatch(ctx->diagnostics, expression->offset, "logical operator requires bool", cn_builtin_type(CN_TYPE_BOOL), left);
+            }
+            if (!cn_type_equal(right, cn_builtin_type(CN_TYPE_BOOL))) {
+                cn_emit_type_mismatch(ctx->diagnostics, expression->offset, "logical operator requires bool", cn_builtin_type(CN_TYPE_BOOL), right);
+            }
+            return cn_builtin_type(CN_TYPE_BOOL);
+        }
+        return cn_builtin_type(CN_TYPE_UNKNOWN);
+    }
+    case CN_EXPR_CALL:
+        return cn_check_call(ctx, scope, expression);
+    case CN_EXPR_ARRAY_LITERAL:
+        return cn_check_array_literal(ctx, scope, expression, expected);
+    case CN_EXPR_INDEX:
+        return cn_check_index(ctx, scope, expression);
+    case CN_EXPR_FIELD:
+        return cn_check_field_access(ctx, scope, expression);
+    case CN_EXPR_STRUCT_LITERAL:
+        return cn_check_struct_literal(ctx, scope, expression);
+    case CN_EXPR_OK: {
+        if (expected != NULL && expected->kind == CN_TYPE_RESULT) {
+            const cn_type_ref *value_type = cn_check_expression_hint(ctx, scope, expression->data.ok_expr.value, expected->inner);
+            if (!cn_type_equal(expected->inner, value_type)) {
+                cn_emit_type_mismatch(ctx->diagnostics, expression->offset, "ok value type mismatch", expected->inner, value_type);
+            }
+            return expected;
+        }
+
+        const cn_type_ref *value_type = cn_check_expression_hint(ctx, scope, expression->data.ok_expr.value, NULL);
+        return cn_make_temp_type(
+            ctx,
+            CN_TYPE_RESULT,
+            cn_sv_from_parts(NULL, 0),
+            cn_sv_from_parts(NULL, 0),
+            value_type,
+            0,
+            expression->offset
+        );
+    }
+    case CN_EXPR_ERR:
+        if (expected != NULL && expected->kind == CN_TYPE_RESULT) {
+            return expected;
+        }
+        cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3015", expression->offset, "'err' requires an expected result type");
+        return cn_builtin_type(CN_TYPE_UNKNOWN);
+    case CN_EXPR_ALLOC:
+        cn_validate_type_ref(ctx, expression->data.alloc_expr.type, expression->offset);
+        return cn_make_temp_type(
+            ctx,
+            CN_TYPE_PTR,
+            cn_sv_from_parts(NULL, 0),
+            cn_sv_from_parts(NULL, 0),
+            expression->data.alloc_expr.type,
+            0,
+            expression->offset
+        );
+    case CN_EXPR_ADDR:
+        return cn_check_address_of(ctx, scope, expression);
+    case CN_EXPR_DEREF: {
+        const cn_type_ref *target_type = cn_check_expression_hint(ctx, scope, expression->data.deref_expr.target, NULL);
+        if (target_type->kind != CN_TYPE_PTR) {
+            cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3004", expression->offset, "deref requires a ptr value");
+            return cn_builtin_type(CN_TYPE_UNKNOWN);
+        }
+        return target_type->inner;
+    }
+    }
+
+    return cn_builtin_type(CN_TYPE_UNKNOWN);
+}
+
+static bool cn_stmt_guarantees_return(const cn_stmt *statement);
+
+static bool cn_block_guarantees_return(const cn_block *block) {
+    for (size_t i = 0; i < block->statements.count; ++i) {
+        const cn_stmt *statement = block->statements.items[i];
+        if (cn_stmt_guarantees_return(statement)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool cn_stmt_guarantees_return(const cn_stmt *statement) {
+    switch (statement->kind) {
+    case CN_STMT_RETURN:
+        return true;
+    case CN_STMT_IF:
+        return statement->data.if_stmt.else_block != NULL &&
+               cn_block_guarantees_return(statement->data.if_stmt.then_block) &&
+               cn_block_guarantees_return(statement->data.if_stmt.else_block);
+    case CN_STMT_LOOP:
+        return cn_block_guarantees_return(statement->data.loop_stmt.body);
+    case CN_STMT_LET:
+    case CN_STMT_ASSIGN:
+    case CN_STMT_EXPR:
+    case CN_STMT_WHILE:
+    case CN_STMT_FOR:
+    case CN_STMT_FREE:
+        return false;
+    }
+
+    return false;
+}
+
+static cn_assignment_target cn_check_assignment_target(cn_sema_ctx *ctx, cn_scope *scope, const cn_expr *target) {
+    cn_assignment_target result;
+    result.type = cn_builtin_type(CN_TYPE_UNKNOWN);
+    result.requires_mutable_binding = false;
+    result.binding_name = cn_sv_from_parts(NULL, 0);
+
+    if (target->kind == CN_EXPR_NAME) {
+        const cn_binding *binding = cn_scope_lookup(scope, target->data.name);
+        if (binding == NULL) {
+            cn_diag_emit(
+                ctx->diagnostics,
+                CN_DIAG_ERROR,
+                "E3002",
+                target->offset,
+                "unknown name '%.*s'",
+                (int)target->data.name.length,
+                target->data.name.data
+            );
+            return result;
+        }
+
+        result.type = binding->type;
+        result.requires_mutable_binding = true;
+        result.binding_name = binding->name;
+        return result;
+    }
+
+    if (target->kind == CN_EXPR_FIELD || target->kind == CN_EXPR_INDEX || target->kind == CN_EXPR_DEREF) {
+        result.type = cn_check_expression_hint(ctx, scope, target, NULL);
+        return result;
+    }
+
+    cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3004", target->offset, "invalid assignment target");
+    return result;
+}
+
+static bool cn_check_statement(cn_sema_ctx *ctx, cn_scope *scope, const cn_stmt *statement) {
+    switch (statement->kind) {
+    case CN_STMT_LET: {
+        cn_validate_type_ref(ctx, statement->data.let_stmt.type, statement->offset);
+        const cn_type_ref *initializer_type = cn_check_expression_hint(ctx, scope, statement->data.let_stmt.initializer, statement->data.let_stmt.type);
+        if (!cn_type_equal(statement->data.let_stmt.type, initializer_type)) {
+            cn_emit_type_mismatch(ctx->diagnostics, statement->offset, "initializer type mismatch", statement->data.let_stmt.type, initializer_type);
+        }
+        cn_scope_define(
+            ctx,
+            scope,
+            statement->data.let_stmt.name,
+            statement->data.let_stmt.type,
+            statement->data.let_stmt.is_mutable,
+            statement->offset
+        );
+        return true;
+    }
+    case CN_STMT_ASSIGN: {
+        cn_assignment_target target_info = cn_check_assignment_target(ctx, scope, statement->data.assign_stmt.target);
+        if (target_info.requires_mutable_binding) {
+            const cn_binding *binding = cn_scope_lookup(scope, target_info.binding_name);
+            if (binding != NULL && !binding->is_mutable) {
+                cn_diag_emit(
+                    ctx->diagnostics,
+                    CN_DIAG_ERROR,
+                    "E3006",
+                    statement->offset,
+                    "cannot assign to immutable binding '%.*s'",
+                    (int)target_info.binding_name.length,
+                    target_info.binding_name.data
+                );
+            }
+        }
+
+        const cn_type_ref *value_type = cn_check_expression_hint(ctx, scope, statement->data.assign_stmt.value, target_info.type);
+        if (!cn_type_equal(target_info.type, value_type)) {
+            cn_emit_type_mismatch(ctx->diagnostics, statement->offset, "assignment type mismatch", target_info.type, value_type);
+        }
+        return true;
+    }
+    case CN_STMT_RETURN: {
+        const cn_type_ref *function_type = ctx->current_function->return_type;
+        if (statement->data.return_stmt.value == NULL) {
+            if (!cn_type_equal(function_type, cn_builtin_type(CN_TYPE_VOID))) {
+                cn_emit_type_mismatch(ctx->diagnostics, statement->offset, "return value required", function_type, cn_builtin_type(CN_TYPE_VOID));
+            }
+            return true;
+        }
+
+        const cn_type_ref *value_type = cn_check_expression_hint(ctx, scope, statement->data.return_stmt.value, function_type);
+        if (!cn_type_equal(function_type, value_type)) {
+            cn_emit_type_mismatch(ctx->diagnostics, statement->offset, "return type mismatch", function_type, value_type);
+        }
+        return true;
+    }
+    case CN_STMT_EXPR:
+        cn_check_expression_hint(ctx, scope, statement->data.expr_stmt.value, NULL);
+        return true;
+    case CN_STMT_IF: {
+        cn_strview guarded_name = cn_sv_from_parts(NULL, 0);
+        bool guard_positive = false;
+        bool has_guard = cn_extract_result_ok_guard(statement->data.if_stmt.condition, &guarded_name, &guard_positive);
+        const cn_type_ref *condition_type = cn_check_expression_hint(ctx, scope, statement->data.if_stmt.condition, cn_builtin_type(CN_TYPE_BOOL));
+        if (!cn_type_equal(condition_type, cn_builtin_type(CN_TYPE_BOOL))) {
+            cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3005", statement->data.if_stmt.condition->offset, "if condition must be bool");
+        }
+
+        cn_check_block_with_guard(ctx, scope, statement->data.if_stmt.then_block, true, guarded_name, has_guard && guard_positive);
+        if (statement->data.if_stmt.else_block != NULL) {
+            cn_check_block_with_guard(ctx, scope, statement->data.if_stmt.else_block, true, guarded_name, has_guard && !guard_positive);
+        }
+
+        if (has_guard) {
+            if (guard_positive && statement->data.if_stmt.else_block != NULL && cn_block_guarantees_return(statement->data.if_stmt.else_block)) {
+                cn_scope_mark_result_ok(ctx, scope, guarded_name);
+            }
+            if (!guard_positive && cn_block_guarantees_return(statement->data.if_stmt.then_block)) {
+                cn_scope_mark_result_ok(ctx, scope, guarded_name);
+            }
+        }
+        return true;
+    }
+    case CN_STMT_WHILE: {
+        const cn_type_ref *condition_type = cn_check_expression_hint(ctx, scope, statement->data.while_stmt.condition, cn_builtin_type(CN_TYPE_BOOL));
+        if (!cn_type_equal(condition_type, cn_builtin_type(CN_TYPE_BOOL))) {
+            cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3005", statement->data.while_stmt.condition->offset, "while condition must be bool");
+        }
+        cn_check_block(ctx, scope, statement->data.while_stmt.body, true);
+        return true;
+    }
+    case CN_STMT_LOOP:
+        cn_check_block(ctx, scope, statement->data.loop_stmt.body, true);
+        return true;
+    case CN_STMT_FOR: {
+        cn_validate_type_ref(ctx, statement->data.for_stmt.type, statement->offset);
+        if (!cn_type_equal(statement->data.for_stmt.type, cn_builtin_type(CN_TYPE_INT))) {
+            cn_emit_type_mismatch(ctx->diagnostics, statement->offset, "range loop binding must be int", cn_builtin_type(CN_TYPE_INT), statement->data.for_stmt.type);
+        }
+
+        const cn_type_ref *start_type = cn_check_expression_hint(ctx, scope, statement->data.for_stmt.start, cn_builtin_type(CN_TYPE_INT));
+        const cn_type_ref *end_type = cn_check_expression_hint(ctx, scope, statement->data.for_stmt.end, cn_builtin_type(CN_TYPE_INT));
+        if (!cn_type_equal(start_type, cn_builtin_type(CN_TYPE_INT))) {
+            cn_emit_type_mismatch(ctx->diagnostics, statement->data.for_stmt.start->offset, "range start must be int", cn_builtin_type(CN_TYPE_INT), start_type);
+        }
+        if (!cn_type_equal(end_type, cn_builtin_type(CN_TYPE_INT))) {
+            cn_emit_type_mismatch(ctx->diagnostics, statement->data.for_stmt.end->offset, "range end must be int", cn_builtin_type(CN_TYPE_INT), end_type);
+        }
+
+        cn_scope loop_scope = {0};
+        loop_scope.parent = scope;
+        cn_scope_define(ctx, &loop_scope, statement->data.for_stmt.name, statement->data.for_stmt.type, false, statement->offset);
+        cn_check_block(ctx, &loop_scope, statement->data.for_stmt.body, true);
+        cn_scope_release(ctx, &loop_scope);
+        return true;
+    }
+    case CN_STMT_FREE: {
+        const cn_type_ref *value_type = cn_check_expression_hint(ctx, scope, statement->data.free_stmt.value, NULL);
+        if (value_type->kind != CN_TYPE_PTR && value_type->kind != CN_TYPE_STR) {
+            cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3019", statement->offset, "free requires a ptr or str value");
+        }
+        return true;
+    }
+    }
+
+    return true;
+}
+
+static bool cn_check_block(cn_sema_ctx *ctx, cn_scope *parent, const cn_block *block, bool creates_scope) {
+    return cn_check_block_with_guard(ctx, parent, block, creates_scope, cn_sv_from_parts(NULL, 0), false);
+}
+
+static bool cn_check_block_with_guard(
+    cn_sema_ctx *ctx,
+    cn_scope *parent,
+    const cn_block *block,
+    bool creates_scope,
+    cn_strview guard_name,
+    bool has_guard
+) {
+    cn_scope scope = {0};
+    cn_scope *active_scope = parent;
+
+    if (creates_scope) {
+        scope.parent = parent;
+        active_scope = &scope;
+    }
+
+    if (has_guard) {
+        cn_scope_mark_result_ok(ctx, active_scope, guard_name);
+    }
+
+    for (size_t i = 0; i < block->statements.count; ++i) {
+        cn_check_statement(ctx, active_scope, block->statements.items[i]);
+    }
+
+    if (creates_scope) {
+        cn_scope_release(ctx, &scope);
+    }
+
+    return !cn_diag_has_error(ctx->diagnostics);
+}
+
+static bool cn_check_struct_decl(cn_sema_ctx *ctx, const cn_struct_decl *struct_decl) {
+    for (size_t i = 0; i < struct_decl->fields.count; ++i) {
+        for (size_t j = i + 1; j < struct_decl->fields.count; ++j) {
+            if (cn_name_eq(struct_decl->fields.items[i].name, struct_decl->fields.items[j].name)) {
+                cn_diag_emit(
+                    ctx->diagnostics,
+                    CN_DIAG_ERROR,
+                    "E3003",
+                    struct_decl->fields.items[j].offset,
+                    "duplicate field '%.*s' in struct '%.*s'",
+                    (int)struct_decl->fields.items[j].name.length,
+                    struct_decl->fields.items[j].name.data,
+                    (int)struct_decl->name.length,
+                    struct_decl->name.data
+                );
+            }
+        }
+
+        bool field_type_valid = cn_validate_type_ref(ctx, struct_decl->fields.items[i].type, struct_decl->fields.items[i].offset);
+        if (struct_decl->is_public && field_type_valid && !cn_type_is_exportable(ctx, struct_decl->fields.items[i].type)) {
+            cn_emit_private_type_in_public_api(
+                ctx,
+                struct_decl->fields.items[i].offset,
+                "struct",
+                struct_decl->name,
+                struct_decl->fields.items[i].type
+            );
+        }
+    }
+
+    return !cn_diag_has_error(ctx->diagnostics);
+}
+
+static bool cn_check_module_header(cn_sema_ctx *ctx) {
+    for (size_t i = 0; i < ctx->module->program->import_count; ++i) {
+        if (ctx->module->imports[i] == NULL) {
+            continue;
+        }
+
+        for (size_t j = i + 1; j < ctx->module->program->import_count; ++j) {
+            if (cn_name_eq(ctx->module->program->imports[i].alias, ctx->module->program->imports[j].alias)) {
+                cn_diag_emit(
+                    ctx->diagnostics,
+                    CN_DIAG_ERROR,
+                    "E3016",
+                    ctx->module->program->imports[j].offset,
+                    "duplicate import alias '%.*s'",
+                    (int)ctx->module->program->imports[j].alias.length,
+                    ctx->module->program->imports[j].alias.data
+                );
+            }
+        }
+    }
+
+    for (size_t i = 0; i < ctx->module->program->struct_count; ++i) {
+        for (size_t j = i + 1; j < ctx->module->program->struct_count; ++j) {
+            if (cn_name_eq(ctx->module->program->structs[i]->name, ctx->module->program->structs[j]->name)) {
+                cn_diag_emit(
+                    ctx->diagnostics,
+                    CN_DIAG_ERROR,
+                    "E3013",
+                    ctx->module->program->structs[j]->offset,
+                    "duplicate struct '%.*s'",
+                    (int)ctx->module->program->structs[j]->name.length,
+                    ctx->module->program->structs[j]->name.data
+                );
+            }
+        }
+    }
+
+    for (size_t i = 0; i < ctx->module->program->function_count; ++i) {
+        for (size_t j = i + 1; j < ctx->module->program->function_count; ++j) {
+            if (cn_name_eq(ctx->module->program->functions[i]->name, ctx->module->program->functions[j]->name)) {
+                cn_diag_emit(
+                    ctx->diagnostics,
+                    CN_DIAG_ERROR,
+                    "E3001",
+                    ctx->module->program->functions[j]->offset,
+                    "duplicate function '%.*s'",
+                    (int)ctx->module->program->functions[j]->name.length,
+                    ctx->module->program->functions[j]->name.data
+                );
+            }
+        }
+    }
+
+    return !cn_diag_has_error(ctx->diagnostics);
+}
+
+static bool cn_check_function_signature(cn_sema_ctx *ctx, const cn_function *function) {
+    bool return_type_valid = cn_validate_type_ref(ctx, function->return_type, function->offset);
+    if (function->is_public && return_type_valid && !cn_type_is_exportable(ctx, function->return_type)) {
+        cn_emit_private_type_in_public_api(ctx, function->offset, "function", function->name, function->return_type);
+    }
+
+    for (size_t i = 0; i < function->parameters.count; ++i) {
+        bool param_type_valid = cn_validate_type_ref(ctx, function->parameters.items[i].type, function->parameters.items[i].offset);
+        if (function->is_public && param_type_valid && !cn_type_is_exportable(ctx, function->parameters.items[i].type)) {
+            cn_emit_private_type_in_public_api(
+                ctx,
+                function->parameters.items[i].offset,
+                "function",
+                function->name,
+                function->parameters.items[i].type
+            );
+        }
+    }
+
+    return !cn_diag_has_error(ctx->diagnostics);
+}
+
+static bool cn_check_function(cn_sema_ctx *ctx, const cn_function *function) {
+    cn_scope root_scope = {0};
+    ctx->current_function = function;
+
+    for (size_t i = 0; i < function->parameters.count; ++i) {
+        cn_scope_define(ctx, &root_scope, function->parameters.items[i].name, function->parameters.items[i].type, false, function->parameters.items[i].offset);
+    }
+
+    cn_check_block(ctx, &root_scope, function->body, false);
+
+    if (!cn_type_equal(function->return_type, cn_builtin_type(CN_TYPE_VOID))) {
+        if (!cn_block_guarantees_return(function->body)) {
+            cn_diag_emit(
+                ctx->diagnostics,
+                CN_DIAG_ERROR,
+                "E3007",
+                function->offset,
+                "non-void function '%.*s' must return explicitly on every path",
+                (int)function->name.length,
+                function->name.data
+            );
+        }
+    }
+
+    cn_scope_release(ctx, &root_scope);
+    return !cn_diag_has_error(ctx->diagnostics);
+}
+
+bool cn_sema_check_project(cn_project *project, cn_diag_bag *diagnostics) {
+    cn_sema_ctx ctx = {0};
+    ctx.project = project;
+    ctx.module = NULL;
+    ctx.diagnostics = diagnostics;
+    ctx.allocator = project->allocator;
+    ctx.current_function = NULL;
+    ctx.temp_types = NULL;
+
+    for (size_t module_index = 0; module_index < project->module_count; ++module_index) {
+        ctx.module = project->modules[module_index];
+        if (ctx.module->program == NULL) {
+            continue;
+        }
+
+        cn_diag_bag_set_source(diagnostics, &ctx.module->source);
+        cn_check_module_header(&ctx);
+
+        for (size_t i = 0; i < ctx.module->program->struct_count; ++i) {
+            cn_check_struct_decl(&ctx, ctx.module->program->structs[i]);
+        }
+
+        for (size_t i = 0; i < ctx.module->program->function_count; ++i) {
+            cn_check_function_signature(&ctx, ctx.module->program->functions[i]);
+        }
+    }
+
+    for (size_t module_index = 0; module_index < project->module_count; ++module_index) {
+        ctx.module = project->modules[module_index];
+        if (ctx.module->program == NULL) {
+            continue;
+        }
+
+        cn_diag_bag_set_source(diagnostics, &ctx.module->source);
+
+        for (size_t i = 0; i < ctx.module->program->function_count; ++i) {
+            cn_check_function(&ctx, ctx.module->program->functions[i]);
+        }
+    }
+
+    cn_temp_types_release(&ctx);
+    return !cn_diag_has_error(diagnostics);
+}

@@ -1,0 +1,27 @@
+import math as m;
+
+fn:result int divide(a:int, b:int) {
+    if b == 0 {
+        return err;
+    }
+
+    return ok a / b;
+}
+
+fn:int main() {
+    let mut x:int = 10;
+    let px:ptr int = addr x;
+    deref px = m.add(deref px, 5);
+
+    let heap:ptr int = alloc int;
+    deref heap = deref px;
+
+    let r:result int = divide(deref heap, 3);
+    if r.ok {
+        free heap;
+        return r.value;
+    }
+
+    free heap;
+    return 0;
+}

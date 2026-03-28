@@ -1,0 +1,7 @@
+struct Secret {
+    value:int;
+}
+
+pfn:int reveal(x:int) {
+    return x;
+}

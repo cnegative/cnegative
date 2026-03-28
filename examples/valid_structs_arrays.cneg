@@ -1,0 +1,17 @@
+struct User {
+    age:int;
+    score:int;
+}
+
+fn:int main() {
+    let arr:int[3] = [1, 2, 3];
+    arr[1] = 10;
+
+    let u:User = User {
+        age:18,
+        score:arr[1]
+    };
+
+    u.score = 200;
+    return u.score;
+}

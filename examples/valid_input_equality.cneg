@@ -1,0 +1,37 @@
+struct Pair {
+    left:int;
+    right:int;
+}
+
+fn:result int choose(x:int) {
+    if x > 0 {
+        return ok x;
+    }
+
+    return err;
+}
+
+fn:int main() {
+    let name:str = input();
+    let pair_a:Pair = Pair {
+        left:1,
+        right:2
+    };
+    let pair_b:Pair = Pair {
+        left:1,
+        right:2
+    };
+    let arr_a:int[2] = [1, 2];
+    let arr_b:int[2] = [1, 2];
+    let r_a:result int = choose(3);
+    let r_b:result int = ok 3;
+
+    if name == "neo" && pair_a == pair_b && arr_a == arr_b && r_a == r_b {
+        print(name);
+        free name;
+        return 1;
+    }
+
+    free name;
+    return 0;
+}

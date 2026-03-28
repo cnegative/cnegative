@@ -1,0 +1,15 @@
+pstruct Point {
+    x:int;
+    y:int;
+}
+
+pfn:Point make_point(x:int, y:int) {
+    return Point {
+        x:x,
+        y:y
+    };
+}
+
+pfn:bool is_origin(point:Point) {
+    return point.x == 0 && point.y == 0;
+}

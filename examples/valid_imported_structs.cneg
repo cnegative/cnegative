@@ -1,0 +1,23 @@
+import shapes as s;
+
+struct Wrapper {
+    point:s.Point;
+}
+
+fn:int main() {
+    let p:s.Point = s.make_point(3, 4);
+    let q:s.Point = s.Point {
+        x:p.x,
+        y:p.y + 1
+    };
+
+    let w:Wrapper = Wrapper {
+        point:q
+    };
+
+    if s.is_origin(w.point) {
+        return 0;
+    }
+
+    return w.point.y;
+}

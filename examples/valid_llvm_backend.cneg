@@ -1,0 +1,29 @@
+import math as m;
+
+fn:int fold(limit:int) {
+    let mut sum:int = 0;
+
+    for i:int in 0..limit {
+        sum = m.add(sum, i);
+    }
+
+    if limit > 0 && sum > 0 {
+        print(sum);
+    }
+
+    return sum;
+}
+
+fn:int main() {
+    let mut x:int = 0;
+
+    while x < 3 {
+        x = x + 1;
+    }
+
+    if x == 3 {
+        return fold(x);
+    }
+
+    return 0;
+}

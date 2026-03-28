@@ -1,0 +1,12 @@
+struct User {
+    age:int;
+    score:int;
+}
+
+fn:int main() {
+    let u:User = User {
+        age:18
+    };
+
+    0;
+}
