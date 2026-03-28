@@ -1,8 +1,10 @@
 # cnegative
 
-`cnegative` is a minimal, hackable systems language with a C-first implementation strategy.
+`cnegative` is a minimal, hackable systems language for learning explicit low-level programming.
 
 It is being shaped as a good place to start before jumping into C, C++, or lower-level systems programming directly. The goal is to keep the language explicit and low-level, while making the surface easier to read, reason about, and modify.
+
+Current project status: `v0.1.0-dev`
 
 This repository currently ships the `cnegc` compiler with:
 
