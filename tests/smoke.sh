@@ -52,6 +52,14 @@ cn_verify_llvm_ir() {
 ./build/cnegc check examples/valid_strings.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_input_equality.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_consts_strings.cneg >"$tmp_valid"
+./build/cnegc check examples/valid_stdlib.cneg >"$tmp_valid"
+./build/cnegc check examples/valid_stdlib_more.cneg >"$tmp_valid"
+./build/cnegc check examples/valid_stdlib_io_fs.cneg >"$tmp_valid"
+./build/cnegc check examples/valid_stdlib_io_read.cneg >"$tmp_valid"
+./build/cnegc check examples/valid_stdlib_time_dirs.cneg >"$tmp_valid"
+./build/cnegc check examples/valid_stdlib_net_fs.cneg >"$tmp_valid"
+./build/cnegc check examples/valid_stdlib_math_process.cneg >"$tmp_valid"
+./build/cnegc check examples/valid_stdlib_path_fs_extra.cneg >"$tmp_valid"
 
 ./build/cnegc bench-lexer examples/valid_basic.cneg 5 >"$tmp_valid"
 if ! grep -q 'tokens_per_second:' "$tmp_valid"; then
@@ -98,6 +106,90 @@ if ! grep -q 'if true {' "$tmp_ir"; then
 fi
 if ! grep -q 'return 20;' "$tmp_ir"; then
     printf 'expected folded return value in typed IR for valid_consts_strings.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+
+./build/cnegc ir examples/valid_stdlib.cneg >"$tmp_ir"
+if ! grep -q 'std.strings.concat' "$tmp_ir"; then
+    printf 'expected std.strings.concat builtin lowering in typed IR for valid_stdlib.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.fs.read_text' "$tmp_ir"; then
+    printf 'expected std.fs.read_text builtin lowering in typed IR for valid_stdlib.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+
+./build/cnegc ir examples/valid_stdlib_more.cneg >"$tmp_ir"
+if ! grep -q 'std.env.get' "$tmp_ir"; then
+    printf 'expected std.env.get builtin lowering in typed IR for valid_stdlib_more.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.path.join' "$tmp_ir"; then
+    printf 'expected std.path.join builtin lowering in typed IR for valid_stdlib_more.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+
+./build/cnegc ir examples/valid_stdlib_io_fs.cneg >"$tmp_ir"
+if ! grep -q 'std.io.write_line' "$tmp_ir"; then
+    printf 'expected std.io.write_line builtin lowering in typed IR for valid_stdlib_io_fs.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.fs.append_text' "$tmp_ir"; then
+    printf 'expected std.fs.append_text builtin lowering in typed IR for valid_stdlib_io_fs.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+
+./build/cnegc ir examples/valid_stdlib_time_dirs.cneg >"$tmp_ir"
+if ! grep -q 'std.time.now_ms' "$tmp_ir"; then
+    printf 'expected std.time.now_ms builtin lowering in typed IR for valid_stdlib_time_dirs.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.fs.create_dir' "$tmp_ir"; then
+    printf 'expected std.fs.create_dir builtin lowering in typed IR for valid_stdlib_time_dirs.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+
+./build/cnegc ir examples/valid_stdlib_net_fs.cneg >"$tmp_ir"
+if ! grep -q 'std.net.join_host_port' "$tmp_ir"; then
+    printf 'expected std.net.join_host_port builtin lowering in typed IR for valid_stdlib_net_fs.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.fs.file_size' "$tmp_ir"; then
+    printf 'expected std.fs.file_size builtin lowering in typed IR for valid_stdlib_net_fs.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+
+./build/cnegc ir examples/valid_stdlib_math_process.cneg >"$tmp_ir"
+if ! grep -q 'std.math.clamp' "$tmp_ir"; then
+    printf 'expected std.math.clamp builtin lowering in typed IR for valid_stdlib_math_process.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.process.platform' "$tmp_ir"; then
+    printf 'expected std.process.platform builtin lowering in typed IR for valid_stdlib_math_process.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+
+./build/cnegc ir examples/valid_stdlib_path_fs_extra.cneg >"$tmp_ir"
+if ! grep -q 'std.fs.copy' "$tmp_ir"; then
+    printf 'expected std.fs.copy builtin lowering in typed IR for valid_stdlib_path_fs_extra.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.path.extension' "$tmp_ir"; then
+    printf 'expected std.path.extension builtin lowering in typed IR for valid_stdlib_path_fs_extra.cneg\n'
     cat "$tmp_ir"
     exit 1
 fi
@@ -176,6 +268,147 @@ if ! grep -q '@cn_concat_str' "$tmp_ll"; then
 fi
 if ! grep -q 'call ptr @cn_dup_cstr' "$tmp_ll"; then
     printf 'expected owned string copy lowering in LLVM IR for valid_consts_strings.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+cn_verify_llvm_ir "$tmp_ll" "$tmp_bc"
+
+./build/cnegc llvm-ir examples/valid_stdlib.cneg >"$tmp_ll"
+if ! grep -q '@cn_parse_int' "$tmp_ll"; then
+    printf 'expected parse runtime helper lowering in LLVM IR for valid_stdlib.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_fs_read_text' "$tmp_ll"; then
+    printf 'expected fs runtime helper lowering in LLVM IR for valid_stdlib.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_starts_with' "$tmp_ll"; then
+    printf 'expected string prefix helper lowering in LLVM IR for valid_stdlib.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+cn_verify_llvm_ir "$tmp_ll" "$tmp_bc"
+
+./build/cnegc llvm-ir examples/valid_stdlib_more.cneg >"$tmp_ll"
+if ! grep -q '@cn_env_get' "$tmp_ll"; then
+    printf 'expected env getter lowering in LLVM IR for valid_stdlib_more.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_path_join' "$tmp_ll"; then
+    printf 'expected path join lowering in LLVM IR for valid_stdlib_more.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_fs_remove' "$tmp_ll"; then
+    printf 'expected fs remove lowering in LLVM IR for valid_stdlib_more.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+cn_verify_llvm_ir "$tmp_ll" "$tmp_bc"
+
+./build/cnegc llvm-ir examples/valid_stdlib_io_fs.cneg >"$tmp_ll"
+if ! grep -q '@cn_write_str' "$tmp_ll"; then
+    printf 'expected std.io write lowering in LLVM IR for valid_stdlib_io_fs.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_fs_append_text' "$tmp_ll"; then
+    printf 'expected fs append lowering in LLVM IR for valid_stdlib_io_fs.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_fs_rename' "$tmp_ll"; then
+    printf 'expected fs rename lowering in LLVM IR for valid_stdlib_io_fs.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+cn_verify_llvm_ir "$tmp_ll" "$tmp_bc"
+
+./build/cnegc llvm-ir examples/valid_stdlib_time_dirs.cneg >"$tmp_ll"
+if ! grep -q '@cn_time_now_ms' "$tmp_ll"; then
+    printf 'expected time now lowering in LLVM IR for valid_stdlib_time_dirs.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_time_sleep_ms' "$tmp_ll"; then
+    printf 'expected time sleep lowering in LLVM IR for valid_stdlib_time_dirs.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_fs_create_dir' "$tmp_ll"; then
+    printf 'expected fs create_dir lowering in LLVM IR for valid_stdlib_time_dirs.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_fs_remove_dir' "$tmp_ll"; then
+    printf 'expected fs remove_dir lowering in LLVM IR for valid_stdlib_time_dirs.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+cn_verify_llvm_ir "$tmp_ll" "$tmp_bc"
+
+./build/cnegc llvm-ir examples/valid_stdlib_net_fs.cneg >"$tmp_ll"
+if ! grep -q '@cn_net_is_ipv4' "$tmp_ll"; then
+    printf 'expected std.net IPv4 lowering in LLVM IR for valid_stdlib_net_fs.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_net_join_host_port' "$tmp_ll"; then
+    printf 'expected std.net join_host_port lowering in LLVM IR for valid_stdlib_net_fs.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_fs_file_size' "$tmp_ll"; then
+    printf 'expected fs file_size lowering in LLVM IR for valid_stdlib_net_fs.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_fs_cwd' "$tmp_ll"; then
+    printf 'expected fs cwd lowering in LLVM IR for valid_stdlib_net_fs.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+cn_verify_llvm_ir "$tmp_ll" "$tmp_bc"
+
+./build/cnegc llvm-ir examples/valid_stdlib_math_process.cneg >"$tmp_ll"
+if ! grep -q '@cn_math_clamp' "$tmp_ll"; then
+    printf 'expected std.math clamp lowering in LLVM IR for valid_stdlib_math_process.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_process_platform' "$tmp_ll"; then
+    printf 'expected std.process platform lowering in LLVM IR for valid_stdlib_math_process.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_process_exit' "$tmp_ll"; then
+    printf 'expected std.process exit lowering in LLVM IR for valid_stdlib_math_process.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+cn_verify_llvm_ir "$tmp_ll" "$tmp_bc"
+
+./build/cnegc llvm-ir examples/valid_stdlib_path_fs_extra.cneg >"$tmp_ll"
+if ! grep -q '@cn_fs_copy' "$tmp_ll"; then
+    printf 'expected std.fs copy lowering in LLVM IR for valid_stdlib_path_fs_extra.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_path_extension' "$tmp_ll"; then
+    printf 'expected std.path extension lowering in LLVM IR for valid_stdlib_path_fs_extra.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_path_stem' "$tmp_ll"; then
+    printf 'expected std.path stem lowering in LLVM IR for valid_stdlib_path_fs_extra.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_path_is_absolute' "$tmp_ll"; then
+    printf 'expected std.path is_absolute lowering in LLVM IR for valid_stdlib_path_fs_extra.cneg\n'
     cat "$tmp_ll"
     exit 1
 fi
@@ -392,5 +625,144 @@ fi
 if ! grep -q '^hello world$' "$tmp_run"; then
     printf 'expected valid_consts_strings binary to print hello world\n'
     cat "$tmp_run"
+    exit 1
+fi
+
+rm -f build/std_demo.txt
+./build/cnegc build examples/valid_stdlib.cneg "$tmp_bin" >"$tmp_valid"
+set +e
+"$tmp_bin" >"$tmp_run"
+status=$?
+set -e
+if [ "$status" -ne 0 ]; then
+    printf 'expected valid_stdlib binary to exit 0, got %d\n' "$status"
+    cat "$tmp_run"
+    exit 1
+fi
+if [ ! -f build/std_demo.txt ]; then
+    printf 'expected valid_stdlib binary to create build/std_demo.txt\n'
+    exit 1
+fi
+if [ "$(cat build/std_demo.txt)" != "42" ]; then
+    printf 'expected valid_stdlib binary to write 42 into build/std_demo.txt\n'
+    cat build/std_demo.txt
+    exit 1
+fi
+
+rm -f build/stdlib_more.txt
+./build/cnegc build examples/valid_stdlib_more.cneg "$tmp_bin" >"$tmp_valid"
+set +e
+"$tmp_bin" >"$tmp_run"
+status=$?
+set -e
+if [ "$status" -ne 0 ]; then
+    printf 'expected valid_stdlib_more binary to exit 0, got %d\n' "$status"
+    cat "$tmp_run"
+    exit 1
+fi
+if [ -f build/stdlib_more.txt ]; then
+    printf 'expected valid_stdlib_more binary to remove build/stdlib_more.txt\n'
+    exit 1
+fi
+
+rm -f build/io_fs_demo.txt build/io_fs_demo_renamed.txt
+./build/cnegc build examples/valid_stdlib_io_fs.cneg "$tmp_bin" >"$tmp_valid"
+set +e
+"$tmp_bin" >"$tmp_run"
+status=$?
+set -e
+if [ "$status" -ne 0 ]; then
+    printf 'expected valid_stdlib_io_fs binary to exit 0, got %d\n' "$status"
+    cat "$tmp_run"
+    exit 1
+fi
+if ! grep -q '^io:ready$' "$tmp_run"; then
+    printf 'expected valid_stdlib_io_fs binary to print io:ready\n'
+    cat "$tmp_run"
+    exit 1
+fi
+if [ -f build/io_fs_demo.txt ] || [ -f build/io_fs_demo_renamed.txt ]; then
+    printf 'expected valid_stdlib_io_fs binary to clean up io demo files\n'
+    exit 1
+fi
+
+printf 'neo\n' >"$tmp_valid"
+./build/cnegc build examples/valid_stdlib_io_read.cneg "$tmp_bin" >"$tmp_run"
+set +e
+"$tmp_bin" <"$tmp_valid" >"$tmp_run"
+status=$?
+set -e
+if [ "$status" -ne 1 ]; then
+    printf 'expected valid_stdlib_io_read binary to exit 1, got %d\n' "$status"
+    cat "$tmp_run"
+    exit 1
+fi
+if ! grep -q '^read:neo$' "$tmp_run"; then
+    printf 'expected valid_stdlib_io_read binary to print read:neo\n'
+    cat "$tmp_run"
+    exit 1
+fi
+
+rm -rf build/time_dir_demo
+./build/cnegc build examples/valid_stdlib_time_dirs.cneg "$tmp_bin" >"$tmp_valid"
+set +e
+"$tmp_bin" >"$tmp_run"
+status=$?
+set -e
+if [ "$status" -ne 0 ]; then
+    printf 'expected valid_stdlib_time_dirs binary to exit 0, got %d\n' "$status"
+    cat "$tmp_run"
+    exit 1
+fi
+if [ -d build/time_dir_demo ]; then
+    printf 'expected valid_stdlib_time_dirs binary to remove build/time_dir_demo\n'
+    exit 1
+fi
+
+rm -f build/std_net_fs.txt
+./build/cnegc build examples/valid_stdlib_net_fs.cneg "$tmp_bin" >"$tmp_valid"
+set +e
+"$tmp_bin" >"$tmp_run"
+status=$?
+set -e
+if [ "$status" -ne 0 ]; then
+    printf 'expected valid_stdlib_net_fs binary to exit 0, got %d\n' "$status"
+    cat "$tmp_run"
+    exit 1
+fi
+if [ -f build/std_net_fs.txt ]; then
+    printf 'expected valid_stdlib_net_fs binary to remove build/std_net_fs.txt\n'
+    exit 1
+fi
+
+./build/cnegc build examples/valid_stdlib_math_process.cneg "$tmp_bin" >"$tmp_valid"
+set +e
+"$tmp_bin" >"$tmp_run"
+status=$?
+set -e
+if [ "$status" -ne 7 ]; then
+    printf 'expected valid_stdlib_math_process binary to exit 7, got %d\n' "$status"
+    cat "$tmp_run"
+    exit 1
+fi
+if ! grep -q '^7$' "$tmp_run"; then
+    printf 'expected valid_stdlib_math_process binary to print 7\n'
+    cat "$tmp_run"
+    exit 1
+fi
+
+rm -f build/path_extra.txt build/path_extra_copy.txt build/path_extra_moved.txt
+./build/cnegc build examples/valid_stdlib_path_fs_extra.cneg "$tmp_bin" >"$tmp_valid"
+set +e
+"$tmp_bin" >"$tmp_run"
+status=$?
+set -e
+if [ "$status" -ne 0 ]; then
+    printf 'expected valid_stdlib_path_fs_extra binary to exit 0, got %d\n' "$status"
+    cat "$tmp_run"
+    exit 1
+fi
+if [ -f build/path_extra.txt ] || [ -f build/path_extra_copy.txt ] || [ -f build/path_extra_moved.txt ]; then
+    printf 'expected valid_stdlib_path_fs_extra binary to clean up path/fs demo files\n'
     exit 1
 fi

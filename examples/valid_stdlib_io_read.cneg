@@ -1,0 +1,16 @@
+import std.strings as strings;
+import std.io as io;
+
+fn:int main() {
+    let line:str = io.read_line();
+    io.write("read:");
+    io.write_line(line);
+
+    if strings.eq(line, "neo") {
+        free line;
+        return 1;
+    }
+
+    free line;
+    return 0;
+}

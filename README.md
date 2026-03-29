@@ -4,7 +4,7 @@
 
 It is being shaped as a good place to start before jumping into C, C++, or lower-level systems programming directly. The goal is to keep the language explicit and low-level, while making the surface easier to read, reason about, and modify.
 
-Current project status: `v0.2.0-dev`
+Current project status: `v0.2.1-dev`
 
 This repository currently ships the `cnegc` compiler with:
 
@@ -75,6 +75,7 @@ Implemented today:
 - arrays
 - field access and indexing
 - module imports and module-qualified public calls
+- initial stdlib modules: `std.math`, `std.strings`, `std.parse`, `std.fs`, `std.io`, `std.time`, `std.env`, `std.path`, `std.net`, and `std.process`
 - `alloc`, `addr`, `deref`, `free`, `ok`, `err`, `print`, and `input`
 - `str_copy` and `str_concat`
 - typed IR lowering
@@ -87,7 +88,7 @@ Implemented today:
 
 Current runtime boundary:
 
-- owned runtime strings are currently produced by `input()`, `str_copy(...)`, and `str_concat(...)`
+- owned runtime strings are currently produced by `input()`, `std.io.read_line(...)`, `str_copy(...)`, `str_concat(...)`, `std.strings.copy(...)`, `std.strings.concat(...)`, `std.fs.read_text(...)`, `std.fs.cwd(...)`, `std.env.get(...)`, `std.path.join(...)`, `std.path.file_name(...)`, `std.path.stem(...)`, `std.path.extension(...)`, `std.path.parent(...)`, `std.net.join_host_port(...)`, `std.process.platform(...)`, and `std.process.arch(...)`
 - `free some_string;` safely releases tracked owned strings from those producers
 - the standard library/runtime surface is still intentionally small
 

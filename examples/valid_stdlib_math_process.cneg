@@ -1,0 +1,50 @@
+import std.math as math;
+import std.process as process;
+import std.strings as strings;
+
+fn:int main() {
+    if math.abs(-7) != 7 {
+        return 1;
+    }
+
+    if math.min(3, 9) != 3 {
+        return 2;
+    }
+
+    if math.max(3, 9) != 9 {
+        return 3;
+    }
+
+    if math.clamp(20, 0, 7) != 7 {
+        return 4;
+    }
+
+    if math.clamp(-5, 0, 7) != 0 {
+        return 5;
+    }
+
+    if math.clamp(4, 7, 0) != 4 {
+        return 6;
+    }
+
+    let platform:str = process.platform();
+    let arch:str = process.arch();
+
+    if strings.len(platform) == 0 {
+        free platform;
+        free arch;
+        return 7;
+    }
+
+    if strings.len(arch) == 0 {
+        free platform;
+        free arch;
+        return 8;
+    }
+
+    print(math.clamp(20, 0, 7));
+    free platform;
+    free arch;
+    process.exit(7);
+    return 9;
+}

@@ -63,6 +63,7 @@ typedef struct cn_struct_decl {
 
 typedef struct cn_import_decl {
     cn_strview module_name;
+    char *owned_module_name;
     cn_strview alias;
     bool has_alias;
     size_t offset;
@@ -247,6 +248,7 @@ typedef struct cn_param_list {
 
 typedef struct cn_function {
     bool is_public;
+    bool is_builtin;
     cn_strview name;
     cn_type_ref *return_type;
     cn_param_list parameters;

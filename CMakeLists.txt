@@ -9,6 +9,7 @@ set(CMAKE_C_EXTENSIONS OFF)
 option(CNEGATIVE_ENABLE_ASM "Enable x86_64 assembly hot paths where supported" ON)
 
 set(CNEGATIVE_C_SOURCES
+    src/backend/llvm_runtime.c
     src/asm/scan_fallback.c
     src/backend/llvm_text.c
     src/backend/toolchain.c

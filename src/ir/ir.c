@@ -573,9 +573,21 @@ static void cn_ir_dump_expr(FILE *stream, const cn_ir_expr *expression);
 
 static void cn_ir_dump_call_target(FILE *stream, const cn_ir_expr *expression) {
     if (expression->data.call.target_kind == CN_IR_CALL_BUILTIN) {
+        if (expression->data.call.module_name.length == 0) {
+            fprintf(
+                stream,
+                "%.*s",
+                (int)expression->data.call.function_name.length,
+                expression->data.call.function_name.data
+            );
+            return;
+        }
+
         fprintf(
             stream,
-            "%.*s",
+            "%.*s.%.*s",
+            (int)expression->data.call.module_name.length,
+            expression->data.call.module_name.data,
             (int)expression->data.call.function_name.length,
             expression->data.call.function_name.data
         );

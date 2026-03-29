@@ -1,0 +1,92 @@
+import std.strings as strings;
+import std.env as env;
+import std.path as path;
+import std.fs as fs;
+
+fn:int main() {
+    if env.has("PATH") == false {
+        return 1;
+    }
+
+    let path_value:result str = env.get("PATH");
+    if path_value.ok == false {
+        return 2;
+    }
+
+    if path_value.ok {
+        if strings.len(path_value.value) == 0 {
+            free path_value.value;
+            return 3;
+        }
+        free path_value.value;
+    }
+
+    let joined:str = path.join("build", "stdlib_more.txt");
+    let file_name:str = path.file_name(joined);
+    if strings.eq(file_name, "stdlib_more.txt") == false {
+        free file_name;
+        free joined;
+        return 4;
+    }
+
+    let parent:result str = path.parent(joined);
+    if parent.ok == false {
+        free file_name;
+        free joined;
+        return 5;
+    }
+
+    if parent.ok {
+        if strings.eq(parent.value, "build") == false {
+            free parent.value;
+            free file_name;
+            free joined;
+            return 6;
+        }
+    }
+
+    let write_ok:result bool = fs.write_text(joined, "ok");
+    if write_ok.ok == false {
+        if parent.ok {
+            free parent.value;
+        }
+        free file_name;
+        free joined;
+        return 7;
+    }
+
+    if fs.exists(joined) == false {
+        if parent.ok {
+            free parent.value;
+        }
+        free file_name;
+        free joined;
+        return 8;
+    }
+
+    let remove_ok:result bool = fs.remove(joined);
+    if remove_ok.ok == false {
+        if parent.ok {
+            free parent.value;
+        }
+        free file_name;
+        free joined;
+        return 9;
+    }
+
+    if fs.exists(joined) {
+        if parent.ok {
+            free parent.value;
+        }
+        free file_name;
+        free joined;
+        return 10;
+    }
+
+    if parent.ok {
+        free parent.value;
+    }
+    free file_name;
+    free joined;
+    return 0;
+}

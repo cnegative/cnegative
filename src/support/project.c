@@ -31,6 +31,289 @@ static FILE *cn_project_open_file(const char *path, const char *mode) {
 #endif
 }
 
+static cn_type_ref *cn_builtin_primitive_type(cn_allocator *allocator, cn_type_kind kind) {
+    switch (kind) {
+    case CN_TYPE_INT:
+        return cn_type_create(allocator, CN_TYPE_INT, cn_sv_from_cstr("int"), NULL, 0);
+    case CN_TYPE_BOOL:
+        return cn_type_create(allocator, CN_TYPE_BOOL, cn_sv_from_cstr("bool"), NULL, 0);
+    case CN_TYPE_STR:
+        return cn_type_create(allocator, CN_TYPE_STR, cn_sv_from_cstr("str"), NULL, 0);
+    case CN_TYPE_VOID:
+        return cn_type_create(allocator, CN_TYPE_VOID, cn_sv_from_cstr("void"), NULL, 0);
+    default:
+        return cn_type_create(allocator, CN_TYPE_UNKNOWN, cn_sv_from_cstr("<unknown>"), NULL, 0);
+    }
+}
+
+static cn_type_ref *cn_builtin_result_type(cn_allocator *allocator, cn_type_kind inner_kind) {
+    return cn_type_create(
+        allocator,
+        CN_TYPE_RESULT,
+        cn_sv_from_cstr("result"),
+        cn_builtin_primitive_type(allocator, inner_kind),
+        0
+    );
+}
+
+static cn_function *cn_builtin_function_create(
+    cn_allocator *allocator,
+    const char *name,
+    cn_type_ref *return_type
+) {
+    cn_function *function = cn_function_create(allocator, 0);
+    function->is_public = true;
+    function->is_builtin = true;
+    function->name = cn_sv_from_cstr(name);
+    function->return_type = return_type;
+    return function;
+}
+
+static void cn_builtin_push_param(cn_allocator *allocator, cn_function *function, const char *name, cn_type_ref *type) {
+    cn_param param;
+    param.name = cn_sv_from_cstr(name);
+    param.type = type;
+    param.offset = 0;
+    cn_param_list_push(allocator, &function->parameters, param);
+}
+
+static void cn_builtin_source_init(cn_allocator *allocator, cn_source *source, const char *path) {
+    source->path = CN_STRDUP(allocator, path);
+    source->text = CN_STRDUP(allocator, "");
+    source->length = 0;
+    source->line_offsets = CN_CALLOC(allocator, size_t, 1);
+    source->line_offsets[0] = 0;
+    source->line_count = 1;
+}
+
+static bool cn_is_builtin_stdlib_module_name(cn_strview module_name) {
+    return cn_sv_eq_cstr(module_name, "std.math") ||
+           cn_sv_eq_cstr(module_name, "std.strings") ||
+           cn_sv_eq_cstr(module_name, "std.parse") ||
+           cn_sv_eq_cstr(module_name, "std.fs") ||
+           cn_sv_eq_cstr(module_name, "std.io") ||
+           cn_sv_eq_cstr(module_name, "std.time") ||
+           cn_sv_eq_cstr(module_name, "std.env") ||
+           cn_sv_eq_cstr(module_name, "std.path") ||
+           cn_sv_eq_cstr(module_name, "std.net") ||
+           cn_sv_eq_cstr(module_name, "std.process");
+}
+
+static cn_program *cn_builtin_stdlib_program(cn_allocator *allocator, const char *module_name) {
+    cn_program *program = cn_program_create(allocator);
+
+    if (strcmp(module_name, "std.math") == 0) {
+        cn_function *abs = cn_builtin_function_create(allocator, "abs", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, abs, "value", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, abs);
+
+        cn_function *min = cn_builtin_function_create(allocator, "min", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, min, "left", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, min, "right", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, min);
+
+        cn_function *max = cn_builtin_function_create(allocator, "max", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, max, "left", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, max, "right", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, max);
+
+        cn_function *clamp = cn_builtin_function_create(allocator, "clamp", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, clamp, "value", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, clamp, "lower", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, clamp, "upper", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, clamp);
+        return program;
+    }
+
+    if (strcmp(module_name, "std.strings") == 0) {
+        cn_function *length = cn_builtin_function_create(allocator, "len", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, length, "value", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, length);
+
+        cn_function *copy = cn_builtin_function_create(allocator, "copy", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(allocator, copy, "value", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, copy);
+
+        cn_function *concat = cn_builtin_function_create(allocator, "concat", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(allocator, concat, "left", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(allocator, concat, "right", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, concat);
+
+        cn_function *eq = cn_builtin_function_create(allocator, "eq", cn_builtin_primitive_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(allocator, eq, "left", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(allocator, eq, "right", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, eq);
+
+        cn_function *starts_with = cn_builtin_function_create(allocator, "starts_with", cn_builtin_primitive_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(allocator, starts_with, "value", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(allocator, starts_with, "prefix", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, starts_with);
+
+        cn_function *ends_with = cn_builtin_function_create(allocator, "ends_with", cn_builtin_primitive_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(allocator, ends_with, "value", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(allocator, ends_with, "suffix", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, ends_with);
+        return program;
+    }
+
+    if (strcmp(module_name, "std.parse") == 0) {
+        cn_function *to_int = cn_builtin_function_create(allocator, "to_int", cn_builtin_result_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, to_int, "value", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, to_int);
+
+        cn_function *to_bool = cn_builtin_function_create(allocator, "to_bool", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(allocator, to_bool, "value", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, to_bool);
+        return program;
+    }
+
+    if (strcmp(module_name, "std.fs") == 0) {
+        cn_function *exists = cn_builtin_function_create(allocator, "exists", cn_builtin_primitive_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(allocator, exists, "path", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, exists);
+
+        cn_function *cwd = cn_builtin_function_create(allocator, "cwd", cn_builtin_result_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, cwd);
+
+        cn_function *create_dir = cn_builtin_function_create(allocator, "create_dir", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(allocator, create_dir, "path", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, create_dir);
+
+        cn_function *remove_dir = cn_builtin_function_create(allocator, "remove_dir", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(allocator, remove_dir, "path", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, remove_dir);
+
+        cn_function *read_text = cn_builtin_function_create(allocator, "read_text", cn_builtin_result_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(allocator, read_text, "path", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, read_text);
+
+        cn_function *file_size = cn_builtin_function_create(allocator, "file_size", cn_builtin_result_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, file_size, "path", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, file_size);
+
+        cn_function *copy = cn_builtin_function_create(allocator, "copy", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(allocator, copy, "from_path", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(allocator, copy, "to_path", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, copy);
+
+        cn_function *write_text = cn_builtin_function_create(allocator, "write_text", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(allocator, write_text, "path", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(allocator, write_text, "data", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, write_text);
+
+        cn_function *append_text = cn_builtin_function_create(allocator, "append_text", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(allocator, append_text, "path", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(allocator, append_text, "data", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, append_text);
+
+        cn_function *rename = cn_builtin_function_create(allocator, "rename", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(allocator, rename, "from_path", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(allocator, rename, "to_path", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, rename);
+
+        cn_function *move = cn_builtin_function_create(allocator, "move", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(allocator, move, "from_path", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(allocator, move, "to_path", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, move);
+
+        cn_function *remove = cn_builtin_function_create(allocator, "remove", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(allocator, remove, "path", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, remove);
+        return program;
+    }
+
+    if (strcmp(module_name, "std.io") == 0) {
+        cn_function *write = cn_builtin_function_create(allocator, "write", cn_builtin_primitive_type(allocator, CN_TYPE_VOID));
+        cn_builtin_push_param(allocator, write, "value", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, write);
+
+        cn_function *write_line = cn_builtin_function_create(allocator, "write_line", cn_builtin_primitive_type(allocator, CN_TYPE_VOID));
+        cn_builtin_push_param(allocator, write_line, "value", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, write_line);
+
+        cn_function *read_line = cn_builtin_function_create(allocator, "read_line", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, read_line);
+        return program;
+    }
+
+    if (strcmp(module_name, "std.time") == 0) {
+        cn_function *now_ms = cn_builtin_function_create(allocator, "now_ms", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, now_ms);
+
+        cn_function *sleep_ms = cn_builtin_function_create(allocator, "sleep_ms", cn_builtin_primitive_type(allocator, CN_TYPE_VOID));
+        cn_builtin_push_param(allocator, sleep_ms, "duration_ms", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, sleep_ms);
+        return program;
+    }
+
+    if (strcmp(module_name, "std.env") == 0) {
+        cn_function *has = cn_builtin_function_create(allocator, "has", cn_builtin_primitive_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(allocator, has, "name", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, has);
+
+        cn_function *get = cn_builtin_function_create(allocator, "get", cn_builtin_result_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(allocator, get, "name", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, get);
+        return program;
+    }
+
+    if (strcmp(module_name, "std.path") == 0) {
+        cn_function *join = cn_builtin_function_create(allocator, "join", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(allocator, join, "left", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(allocator, join, "right", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, join);
+
+        cn_function *file_name = cn_builtin_function_create(allocator, "file_name", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(allocator, file_name, "path", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, file_name);
+
+        cn_function *stem = cn_builtin_function_create(allocator, "stem", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(allocator, stem, "path", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, stem);
+
+        cn_function *extension = cn_builtin_function_create(allocator, "extension", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(allocator, extension, "path", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, extension);
+
+        cn_function *is_absolute = cn_builtin_function_create(allocator, "is_absolute", cn_builtin_primitive_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(allocator, is_absolute, "path", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, is_absolute);
+
+        cn_function *parent = cn_builtin_function_create(allocator, "parent", cn_builtin_result_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(allocator, parent, "path", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, parent);
+        return program;
+    }
+
+    if (strcmp(module_name, "std.net") == 0) {
+        cn_function *is_ipv4 = cn_builtin_function_create(allocator, "is_ipv4", cn_builtin_primitive_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(allocator, is_ipv4, "value", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, is_ipv4);
+
+        cn_function *join_host_port = cn_builtin_function_create(allocator, "join_host_port", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(allocator, join_host_port, "host", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(allocator, join_host_port, "port", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, join_host_port);
+        return program;
+    }
+
+    if (strcmp(module_name, "std.process") == 0) {
+        cn_function *platform = cn_builtin_function_create(allocator, "platform", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, platform);
+
+        cn_function *arch = cn_builtin_function_create(allocator, "arch", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, arch);
+
+        cn_function *exit = cn_builtin_function_create(allocator, "exit", cn_builtin_primitive_type(allocator, CN_TYPE_VOID));
+        cn_builtin_push_param(allocator, exit, "status", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, exit);
+        return program;
+    }
+
+    cn_program_destroy(allocator, program);
+    return NULL;
+}
+
 static void cn_project_reserve_modules(cn_project *project, size_t required) {
     if (project->module_capacity >= required) {
         return;
@@ -182,6 +465,13 @@ static char *cn_path_build_import_path(
     size_t length = strlen(module->directory) + 1 + import_name.length + extension_length + 1;
     char *path = (char *)cn_alloc_impl(allocator, length, __FILE__, __LINE__);
     snprintf(path, length, "%s%c%.*s%s", module->directory, CN_PATH_SEPARATOR, (int)import_name.length, import_name.data, extension);
+    char *import_start = path + strlen(module->directory) + 1;
+    for (size_t index = 0; index < import_name.length; ++index) {
+        char *cursor = import_start + index;
+        if (*cursor == '.') {
+            *cursor = CN_PATH_SEPARATOR;
+        }
+    }
     return path;
 }
 
@@ -203,6 +493,7 @@ static char *cn_path_resolve_import(cn_allocator *allocator, const cn_module *mo
 
 static cn_module *cn_module_create(cn_allocator *allocator, const char *resolved_path) {
     cn_module *module = CN_ALLOC(allocator, cn_module);
+    module->is_builtin_stdlib = false;
     module->name = cn_path_module_name(allocator, resolved_path);
     module->path = CN_STRDUP(allocator, resolved_path);
     module->directory = cn_path_directory(allocator, resolved_path);
@@ -218,9 +509,38 @@ static cn_module *cn_module_create(cn_allocator *allocator, const char *resolved
     return module;
 }
 
+static cn_module *cn_builtin_module_create(cn_allocator *allocator, cn_strview module_name) {
+    char path_buffer[128];
+    snprintf(path_buffer, sizeof(path_buffer), "<stdlib:%.*s>", (int)module_name.length, module_name.data);
+
+    cn_module *module = CN_ALLOC(allocator, cn_module);
+    module->is_builtin_stdlib = true;
+    module->name = CN_STRNDUP(allocator, module_name.data, module_name.length);
+    module->path = CN_STRDUP(allocator, path_buffer);
+    module->directory = CN_STRDUP(allocator, "<stdlib>");
+    cn_builtin_source_init(allocator, &module->source, module->path);
+    module->program = cn_builtin_stdlib_program(allocator, module->name);
+    module->imports = NULL;
+    module->import_count = 0;
+    module->loading = false;
+    return module;
+}
+
 static void cn_project_push_module(cn_project *project, cn_module *module) {
     cn_project_reserve_modules(project, project->module_count + 1);
     project->modules[project->module_count++] = module;
+}
+
+static cn_module *cn_project_load_builtin_module(cn_project *project, cn_strview module_name) {
+    for (size_t i = 0; i < project->module_count; ++i) {
+        if (project->modules[i]->is_builtin_stdlib && cn_sv_eq_cstr(module_name, project->modules[i]->name)) {
+            return project->modules[i];
+        }
+    }
+
+    cn_module *module = cn_builtin_module_create(project->allocator, module_name);
+    cn_project_push_module(project, module);
+    return module;
 }
 
 static cn_module *cn_project_load_module(
@@ -305,6 +625,11 @@ static cn_module *cn_project_load_module(
         }
 
         for (size_t i = 0; i < module->import_count; ++i) {
+            if (cn_is_builtin_stdlib_module_name(module->program->imports[i].module_name)) {
+                module->imports[i] = cn_project_load_builtin_module(project, module->program->imports[i].module_name);
+                continue;
+            }
+
             char *child_path = cn_path_resolve_import(project->allocator, module, module->program->imports[i].module_name);
             module->imports[i] = cn_project_load_module(
                 project,

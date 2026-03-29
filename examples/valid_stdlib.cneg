@@ -1,0 +1,116 @@
+import std.strings as strings;
+import std.parse as parse;
+import std.fs as fs;
+
+fn:int main() {
+    let copied:str = strings.copy("4");
+    let joined:str = strings.concat(copied, "2");
+
+    if strings.starts_with(joined, "4") == false {
+        free copied;
+        free joined;
+        return 1;
+    }
+
+    if strings.ends_with(joined, "2") == false {
+        free copied;
+        free joined;
+        return 2;
+    }
+
+    if strings.len(joined) != 2 {
+        free copied;
+        free joined;
+        return 3;
+    }
+
+    if strings.eq(joined, "42") == false {
+        free copied;
+        free joined;
+        return 4;
+    }
+
+    let write_ok:result bool = fs.write_text("build/std_demo.txt", joined);
+    if write_ok.ok == false {
+        free copied;
+        free joined;
+        return 5;
+    }
+
+    if fs.exists("build/std_demo.txt") == false {
+        free copied;
+        free joined;
+        return 6;
+    }
+
+    let text:result str = fs.read_text("build/std_demo.txt");
+    if text.ok == false {
+        free copied;
+        free joined;
+        return 7;
+    }
+
+    if text.ok {
+        if strings.eq(text.value, joined) == false {
+            free text.value;
+            free copied;
+            free joined;
+            return 8;
+        }
+
+        let parsed:result int = parse.to_int(text.value);
+        if parsed.ok == false {
+            free text.value;
+            free copied;
+            free joined;
+            return 9;
+        }
+
+        if parsed.ok {
+            if parsed.value != 42 {
+                free text.value;
+                free copied;
+                free joined;
+                return 10;
+            }
+        }
+    }
+
+    let parsed_bool:result bool = parse.to_bool("true");
+    if parsed_bool.ok == false {
+        if text.ok {
+            free text.value;
+        }
+        free copied;
+        free joined;
+        return 11;
+    }
+
+    if parsed_bool.ok {
+        if parsed_bool.value == false {
+            if text.ok {
+                free text.value;
+            }
+            free copied;
+            free joined;
+            return 12;
+        }
+    }
+
+    let bad:result int = parse.to_int("oops");
+    if bad.ok {
+        if text.ok {
+            free text.value;
+        }
+        free copied;
+        free joined;
+        return 13;
+    }
+
+    if text.ok {
+        free text.value;
+    }
+    free copied;
+    free joined;
+    return 0;
+}

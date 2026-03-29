@@ -633,7 +633,7 @@ static cn_ir_expr *cn_ir_lower_call(cn_ir_lower_ctx *ctx, cn_ir_scope *scope, co
             return ir_expression;
         }
 
-        ir_expression->data.call.target_kind = CN_IR_CALL_MODULE;
+        ir_expression->data.call.target_kind = imported->is_builtin_stdlib ? CN_IR_CALL_BUILTIN : CN_IR_CALL_MODULE;
         ir_expression->data.call.module_name = cn_sv_from_cstr(imported->name);
         ir_expression->data.call.function_name = function->name;
         if (!cn_ir_lower_call_arguments(ctx, scope, ir_expression, &expression->data.call.arguments, &function->parameters)) {
@@ -1082,7 +1082,7 @@ bool cn_ir_lower_project(cn_allocator *allocator, const cn_project *project, cn_
     cn_ir_program *program = cn_ir_program_create(allocator);
     for (size_t module_index = 0; module_index < project->module_count; ++module_index) {
         ctx.module = project->modules[module_index];
-        if (ctx.module->program == NULL) {
+        if (ctx.module->program == NULL || ctx.module->is_builtin_stdlib) {
             continue;
         }
 

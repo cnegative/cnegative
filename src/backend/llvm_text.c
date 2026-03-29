@@ -1,4 +1,5 @@
 #include "cnegative/backend.h"
+#include "cnegative/llvm_runtime.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -248,19 +249,45 @@ static bool cn_llvm_type_supports_print(const cn_ir_type *type) {
            type->kind == CN_IR_TYPE_STR;
 }
 
+static bool cn_llvm_call_matches(const cn_ir_expr *expression, const char *module_name, const char *function_name) {
+    if (expression->data.call.target_kind != CN_IR_CALL_BUILTIN) {
+        return false;
+    }
+
+    if (!cn_sv_eq_cstr(expression->data.call.function_name, function_name)) {
+        return false;
+    }
+
+    if (module_name == NULL) {
+        return expression->data.call.module_name.length == 0;
+    }
+
+    return cn_sv_eq_cstr(expression->data.call.module_name, module_name);
+}
+
+static bool cn_llvm_validate_builtin_arguments(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expression, size_t expected_count, const char *feature_name) {
+    if (expression->data.call.arguments.count != expected_count) {
+        cn_llvm_emit_unsupported_feature(ctx->diagnostics, expression->offset, feature_name);
+        return false;
+    }
+
+    for (size_t i = 0; i < expression->data.call.arguments.count; ++i) {
+        if (!cn_llvm_validate_expression(ctx, expression->data.call.arguments.items[i])) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static bool cn_llvm_validate_call(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expression) {
     if (!cn_llvm_validate_type(ctx, expression->type, expression->offset)) {
         return false;
     }
 
     if (expression->data.call.target_kind == CN_IR_CALL_BUILTIN) {
-        if (cn_sv_eq_cstr(expression->data.call.function_name, "print")) {
-            if (expression->data.call.arguments.count != 1) {
-                cn_llvm_emit_unsupported_feature(ctx->diagnostics, expression->offset, "unexpected builtin print arity");
-                return false;
-            }
-
-            if (!cn_llvm_validate_expression(ctx, expression->data.call.arguments.items[0])) {
+        if (cn_llvm_call_matches(expression, NULL, "print")) {
+            if (!cn_llvm_validate_builtin_arguments(ctx, expression, 1, "unexpected builtin print arity")) {
                 return false;
             }
 
@@ -271,32 +298,76 @@ static bool cn_llvm_validate_call(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expre
             return true;
         }
 
-        if (cn_sv_eq_cstr(expression->data.call.function_name, "input")) {
-            if (expression->data.call.arguments.count != 0) {
-                cn_llvm_emit_unsupported_feature(ctx->diagnostics, expression->offset, "unexpected builtin input arity");
+        if (cn_llvm_call_matches(expression, NULL, "input")) {
+            if (!cn_llvm_validate_builtin_arguments(ctx, expression, 0, "unexpected builtin input arity")) {
                 return false;
             }
             return true;
         }
 
-        if (cn_sv_eq_cstr(expression->data.call.function_name, "str_copy")) {
-            if (expression->data.call.arguments.count != 1) {
-                cn_llvm_emit_unsupported_feature(ctx->diagnostics, expression->offset, "unexpected builtin str_copy arity");
-                return false;
-            }
-            return cn_llvm_validate_expression(ctx, expression->data.call.arguments.items[0]);
+        if (cn_llvm_call_matches(expression, "std.io", "read_line") ||
+            cn_llvm_call_matches(expression, "std.process", "platform") ||
+            cn_llvm_call_matches(expression, "std.process", "arch") ||
+            cn_llvm_call_matches(expression, "std.time", "now_ms") ||
+            cn_llvm_call_matches(expression, "std.fs", "cwd")) {
+            return cn_llvm_validate_builtin_arguments(ctx, expression, 0, "unexpected builtin zero-argument stdlib arity");
         }
 
-        if (cn_sv_eq_cstr(expression->data.call.function_name, "str_concat")) {
-            if (expression->data.call.arguments.count != 2) {
-                cn_llvm_emit_unsupported_feature(ctx->diagnostics, expression->offset, "unexpected builtin str_concat arity");
-                return false;
-            }
-            return cn_llvm_validate_expression(ctx, expression->data.call.arguments.items[0]) &&
-                   cn_llvm_validate_expression(ctx, expression->data.call.arguments.items[1]);
+        if (cn_llvm_call_matches(expression, NULL, "str_copy") ||
+            cn_llvm_call_matches(expression, "std.strings", "copy")) {
+            return cn_llvm_validate_builtin_arguments(ctx, expression, 1, "unexpected builtin string-copy arity");
         }
 
-        cn_llvm_emit_unsupported_feature(ctx->diagnostics, expression->offset, "builtin calls other than print/input/str_copy/str_concat");
+        if (cn_llvm_call_matches(expression, NULL, "str_concat") ||
+            cn_llvm_call_matches(expression, "std.strings", "concat")) {
+            return cn_llvm_validate_builtin_arguments(ctx, expression, 2, "unexpected builtin string-concat arity");
+        }
+
+        if (cn_llvm_call_matches(expression, "std.math", "abs") ||
+            cn_llvm_call_matches(expression, "std.strings", "len") ||
+            cn_llvm_call_matches(expression, "std.parse", "to_int") ||
+            cn_llvm_call_matches(expression, "std.parse", "to_bool") ||
+            cn_llvm_call_matches(expression, "std.net", "is_ipv4") ||
+            cn_llvm_call_matches(expression, "std.env", "has") ||
+            cn_llvm_call_matches(expression, "std.env", "get") ||
+            cn_llvm_call_matches(expression, "std.fs", "exists") ||
+            cn_llvm_call_matches(expression, "std.fs", "create_dir") ||
+            cn_llvm_call_matches(expression, "std.fs", "remove_dir") ||
+            cn_llvm_call_matches(expression, "std.fs", "read_text") ||
+            cn_llvm_call_matches(expression, "std.fs", "file_size") ||
+            cn_llvm_call_matches(expression, "std.fs", "remove") ||
+            cn_llvm_call_matches(expression, "std.io", "write") ||
+            cn_llvm_call_matches(expression, "std.io", "write_line") ||
+            cn_llvm_call_matches(expression, "std.process", "exit") ||
+            cn_llvm_call_matches(expression, "std.time", "sleep_ms") ||
+            cn_llvm_call_matches(expression, "std.path", "stem") ||
+            cn_llvm_call_matches(expression, "std.path", "extension") ||
+            cn_llvm_call_matches(expression, "std.path", "is_absolute") ||
+            cn_llvm_call_matches(expression, "std.path", "file_name") ||
+            cn_llvm_call_matches(expression, "std.path", "parent")) {
+            return cn_llvm_validate_builtin_arguments(ctx, expression, 1, "unexpected builtin stdlib arity");
+        }
+
+        if (cn_llvm_call_matches(expression, "std.math", "min") ||
+            cn_llvm_call_matches(expression, "std.math", "max") ||
+            cn_llvm_call_matches(expression, "std.strings", "eq") ||
+            cn_llvm_call_matches(expression, "std.strings", "starts_with") ||
+            cn_llvm_call_matches(expression, "std.strings", "ends_with") ||
+            cn_llvm_call_matches(expression, "std.fs", "copy") ||
+            cn_llvm_call_matches(expression, "std.fs", "write_text") ||
+            cn_llvm_call_matches(expression, "std.fs", "append_text") ||
+            cn_llvm_call_matches(expression, "std.fs", "rename") ||
+            cn_llvm_call_matches(expression, "std.fs", "move") ||
+            cn_llvm_call_matches(expression, "std.net", "join_host_port") ||
+            cn_llvm_call_matches(expression, "std.path", "join")) {
+            return cn_llvm_validate_builtin_arguments(ctx, expression, 2, "unexpected builtin stdlib arity");
+        }
+
+        if (cn_llvm_call_matches(expression, "std.math", "clamp")) {
+            return cn_llvm_validate_builtin_arguments(ctx, expression, 3, "unexpected builtin stdlib arity");
+        }
+
+        cn_llvm_emit_unsupported_feature(ctx->diagnostics, expression->offset, "unknown builtin call target");
         return false;
     }
 
@@ -1315,57 +1386,260 @@ static cn_llvm_value cn_llvm_lower_struct_literal(cn_llvm_function_ctx *ctx, cn_
     return cn_llvm_register_value(expression->type, aggregate_reg_id);
 }
 
+static bool cn_llvm_lower_builtin_arguments(
+    cn_llvm_function_ctx *ctx,
+    cn_llvm_scope *scope,
+    const cn_ir_expr *expression,
+    cn_llvm_value *arguments,
+    size_t max_count
+) {
+    if (expression->data.call.arguments.count > max_count) {
+        cn_llvm_emit_unsupported_feature(ctx->emit->diagnostics, expression->offset, "builtin calls with too many arguments");
+        return false;
+    }
+
+    for (size_t i = 0; i < expression->data.call.arguments.count; ++i) {
+        arguments[i] = cn_llvm_lower_expression(ctx, scope, expression->data.call.arguments.items[i]);
+        if (!arguments[i].is_valid) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static cn_llvm_value cn_llvm_emit_named_call(
+    cn_llvm_function_ctx *ctx,
+    const cn_ir_type *result_type,
+    const char *symbol,
+    cn_llvm_value *arguments,
+    size_t argument_count
+) {
+    if (result_type->kind == CN_IR_TYPE_VOID) {
+        cn_llvm_emit_indent(ctx->emit->stream);
+        fputs("call void ", ctx->emit->stream);
+        fputs(symbol, ctx->emit->stream);
+        fputc('(', ctx->emit->stream);
+        for (size_t i = 0; i < argument_count; ++i) {
+            if (i > 0) {
+                fputs(", ", ctx->emit->stream);
+            }
+            cn_llvm_emit_type(ctx->emit->stream, arguments[i].type);
+            fputc(' ', ctx->emit->stream);
+            cn_llvm_emit_value_ref(ctx->emit->stream, arguments[i]);
+        }
+        fputs(")\n", ctx->emit->stream);
+        return cn_llvm_void_value(result_type);
+    }
+
+    int reg_id = cn_llvm_next_temp(ctx);
+    cn_llvm_emit_indent(ctx->emit->stream);
+    cn_llvm_emit_reg(ctx->emit->stream, reg_id);
+    fputs(" = call ", ctx->emit->stream);
+    cn_llvm_emit_type(ctx->emit->stream, result_type);
+    fputc(' ', ctx->emit->stream);
+    fputs(symbol, ctx->emit->stream);
+    fputc('(', ctx->emit->stream);
+    for (size_t i = 0; i < argument_count; ++i) {
+        if (i > 0) {
+            fputs(", ", ctx->emit->stream);
+        }
+        cn_llvm_emit_type(ctx->emit->stream, arguments[i].type);
+        fputc(' ', ctx->emit->stream);
+        cn_llvm_emit_value_ref(ctx->emit->stream, arguments[i]);
+    }
+    fputs(")\n", ctx->emit->stream);
+    return cn_llvm_register_value(result_type, reg_id);
+}
+
 static cn_llvm_value cn_llvm_lower_builtin_call(cn_llvm_function_ctx *ctx, cn_llvm_scope *scope, const cn_ir_expr *expression) {
-    if (cn_sv_eq_cstr(expression->data.call.function_name, "input")) {
-        int reg_id = cn_llvm_next_temp(ctx);
-        cn_llvm_emit_indent(ctx->emit->stream);
-        cn_llvm_emit_reg(ctx->emit->stream, reg_id);
-        fputs(" = call ptr @cn_input()\n", ctx->emit->stream);
-        return cn_llvm_register_value(&g_llvm_str_type, reg_id);
-    }
+    cn_llvm_value arguments[3];
 
-    if (cn_sv_eq_cstr(expression->data.call.function_name, "str_copy")) {
-        cn_llvm_value argument = cn_llvm_lower_expression(ctx, scope, expression->data.call.arguments.items[0]);
-        int reg_id = cn_llvm_next_temp(ctx);
-        if (!argument.is_valid) {
-            return cn_llvm_invalid_value(expression->type);
-        }
-        cn_llvm_emit_indent(ctx->emit->stream);
-        cn_llvm_emit_reg(ctx->emit->stream, reg_id);
-        fputs(" = call ptr @cn_dup_cstr(ptr ", ctx->emit->stream);
-        cn_llvm_emit_value_ref(ctx->emit->stream, argument);
-        fputs(")\n", ctx->emit->stream);
-        return cn_llvm_register_value(&g_llvm_str_type, reg_id);
-    }
-
-    if (cn_sv_eq_cstr(expression->data.call.function_name, "str_concat")) {
-        cn_llvm_value left = cn_llvm_lower_expression(ctx, scope, expression->data.call.arguments.items[0]);
-        cn_llvm_value right = cn_llvm_lower_expression(ctx, scope, expression->data.call.arguments.items[1]);
-        int reg_id = cn_llvm_next_temp(ctx);
-        if (!left.is_valid || !right.is_valid) {
-            return cn_llvm_invalid_value(expression->type);
-        }
-        cn_llvm_emit_indent(ctx->emit->stream);
-        cn_llvm_emit_reg(ctx->emit->stream, reg_id);
-        fputs(" = call ptr @cn_concat_str(ptr ", ctx->emit->stream);
-        cn_llvm_emit_value_ref(ctx->emit->stream, left);
-        fputs(", ptr ", ctx->emit->stream);
-        cn_llvm_emit_value_ref(ctx->emit->stream, right);
-        fputs(")\n", ctx->emit->stream);
-        return cn_llvm_register_value(&g_llvm_str_type, reg_id);
-    }
-
-    if (!cn_sv_eq_cstr(expression->data.call.function_name, "print")) {
+    if (!cn_llvm_lower_builtin_arguments(ctx, scope, expression, arguments, CN_ARRAY_LEN(arguments))) {
         return cn_llvm_invalid_value(expression->type);
     }
 
-    cn_llvm_value argument = cn_llvm_lower_expression(ctx, scope, expression->data.call.arguments.items[0]);
-    if (!argument.is_valid) {
+    if (cn_llvm_call_matches(expression, NULL, "input")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_input", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.io", "read_line")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_input", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.process", "platform")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_process_platform", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.process", "arch")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_process_arch", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.time", "now_ms")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_time_now_ms", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.fs", "cwd")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_fs_cwd", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, NULL, "str_copy") ||
+        cn_llvm_call_matches(expression, "std.strings", "copy")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_dup_cstr", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, NULL, "str_concat") ||
+        cn_llvm_call_matches(expression, "std.strings", "concat")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_concat_str", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.math", "abs")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_math_abs", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.strings", "len")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@strlen", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.strings", "eq")) {
+        return cn_llvm_emit_value_equality(ctx, arguments[0], arguments[1], &g_llvm_str_type, expression->offset);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.strings", "starts_with")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_starts_with", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.strings", "ends_with")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_ends_with", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.parse", "to_int")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_parse_int", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.parse", "to_bool")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_parse_bool", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.math", "min")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_math_min", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.math", "max")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_math_max", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.math", "clamp")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_math_clamp", arguments, 3);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.net", "is_ipv4")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_net_is_ipv4", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.env", "has")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_env_has", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.env", "get")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_env_get", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.fs", "exists")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_fs_exists", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.fs", "create_dir")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_fs_create_dir", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.fs", "remove_dir")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_fs_remove_dir", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.fs", "read_text")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_fs_read_text", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.fs", "file_size")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_fs_file_size", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.fs", "copy")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_fs_copy", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.fs", "write_text")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_fs_write_text", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.fs", "append_text")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_fs_append_text", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.fs", "rename")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_fs_rename", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.fs", "move")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_fs_rename", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.fs", "remove")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_fs_remove", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.io", "write")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_write_str", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.io", "write_line")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_print_str", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.process", "exit")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_process_exit", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.time", "sleep_ms")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_time_sleep_ms", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.path", "join")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_path_join", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.net", "join_host_port")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_net_join_host_port", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.path", "file_name")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_path_file_name", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.path", "stem")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_path_stem", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.path", "extension")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_path_extension", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.path", "is_absolute")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_path_is_absolute", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.path", "parent")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_path_parent", arguments, 1);
+    }
+
+    if (!cn_llvm_call_matches(expression, NULL, "print")) {
+        cn_llvm_emit_unsupported_feature(ctx->emit->diagnostics, expression->offset, "unknown builtin call target");
         return cn_llvm_invalid_value(expression->type);
     }
 
     cn_llvm_emit_indent(ctx->emit->stream);
-    switch (argument.type->kind) {
+    switch (arguments[0].type->kind) {
     case CN_IR_TYPE_INT:
         fputs("call void @cn_print_int(i64 ", ctx->emit->stream);
         break;
@@ -1380,7 +1654,7 @@ static cn_llvm_value cn_llvm_lower_builtin_call(cn_llvm_function_ctx *ctx, cn_ll
         return cn_llvm_invalid_value(expression->type);
     }
 
-    cn_llvm_emit_value_ref(ctx->emit->stream, argument);
+    cn_llvm_emit_value_ref(ctx->emit->stream, arguments[0]);
     fputs(")\n", ctx->emit->stream);
     return cn_llvm_void_value(expression->type);
 }
@@ -2106,198 +2380,6 @@ static void cn_llvm_emit_string_globals(const cn_llvm_emit_ctx *ctx, FILE *strea
         cn_llvm_emit_escaped_bytes(stream, entry->value);
         fputs("\\00\"\n", stream);
     }
-}
-
-static void cn_llvm_emit_runtime_prelude(FILE *stream) {
-    fputs("declare i32 @printf(ptr, ...)\n", stream);
-    fputs("declare i32 @puts(ptr)\n", stream);
-    fputs("declare i32 @getchar()\n", stream);
-    fputs("declare i64 @strlen(ptr)\n", stream);
-    fputs("declare i32 @strcmp(ptr, ptr)\n", stream);
-    fputs("declare ptr @memcpy(ptr, ptr, i64)\n", stream);
-    fputs("declare ptr @malloc(i64)\n", stream);
-    fputs("declare void @free(ptr)\n", stream);
-    fputs("@.cn.int_fmt = private unnamed_addr constant [6 x i8] c\"%lld\\0A\\00\"\n", stream);
-    fputs("@.cn.empty = private unnamed_addr constant [1 x i8] c\"\\00\"\n", stream);
-    fputs("@.cn.true = private unnamed_addr constant [5 x i8] c\"true\\00\"\n", stream);
-    fputs("@.cn.false = private unnamed_addr constant [6 x i8] c\"false\\00\"\n", stream);
-    fputs("@.cn.input_buffer = internal global [4096 x i8] zeroinitializer\n", stream);
-    fputs("@.cn.str_head = internal global ptr null\n", stream);
-    fputs(
-        "\n"
-        "define private void @cn_track_str(ptr %value) {\n"
-        "entry:\n"
-        "  %node = call ptr @malloc(i64 16)\n"
-        "  %has.node = icmp ne ptr %node, null\n"
-        "  br i1 %has.node, label %link, label %done\n"
-        "link:\n"
-        "  %node.value = getelementptr inbounds { ptr, ptr }, ptr %node, i32 0, i32 0\n"
-        "  %node.next = getelementptr inbounds { ptr, ptr }, ptr %node, i32 0, i32 1\n"
-        "  %head = load ptr, ptr @.cn.str_head\n"
-        "  store ptr %value, ptr %node.value\n"
-        "  store ptr %head, ptr %node.next\n"
-        "  store ptr %node, ptr @.cn.str_head\n"
-        "  br label %done\n"
-        "done:\n"
-        "  ret void\n"
-        "}\n\n",
-        stream
-    );
-    fputs(
-        "define private void @cn_free_str(ptr %value) {\n"
-        "entry:\n"
-        "  %prev.slot = alloca ptr\n"
-        "  %curr.slot = alloca ptr\n"
-        "  store ptr null, ptr %prev.slot\n"
-        "  %head = load ptr, ptr @.cn.str_head\n"
-        "  store ptr %head, ptr %curr.slot\n"
-        "  br label %loop\n"
-        "loop:\n"
-        "  %curr = load ptr, ptr %curr.slot\n"
-        "  %is.null = icmp eq ptr %curr, null\n"
-        "  br i1 %is.null, label %done, label %check\n"
-        "check:\n"
-        "  %curr.value.ptr = getelementptr inbounds { ptr, ptr }, ptr %curr, i32 0, i32 0\n"
-        "  %curr.value = load ptr, ptr %curr.value.ptr\n"
-        "  %matches = icmp eq ptr %curr.value, %value\n"
-        "  br i1 %matches, label %unlink, label %advance\n"
-        "advance:\n"
-        "  %curr.next.ptr = getelementptr inbounds { ptr, ptr }, ptr %curr, i32 0, i32 1\n"
-        "  %next = load ptr, ptr %curr.next.ptr\n"
-        "  store ptr %curr, ptr %prev.slot\n"
-        "  store ptr %next, ptr %curr.slot\n"
-        "  br label %loop\n"
-        "unlink:\n"
-        "  %curr.next.ptr2 = getelementptr inbounds { ptr, ptr }, ptr %curr, i32 0, i32 1\n"
-        "  %next2 = load ptr, ptr %curr.next.ptr2\n"
-        "  %prev = load ptr, ptr %prev.slot\n"
-        "  %has.prev = icmp ne ptr %prev, null\n"
-        "  br i1 %has.prev, label %unlink.prev, label %unlink.head\n"
-        "unlink.prev:\n"
-        "  %prev.next.ptr = getelementptr inbounds { ptr, ptr }, ptr %prev, i32 0, i32 1\n"
-        "  store ptr %next2, ptr %prev.next.ptr\n"
-        "  br label %free.node\n"
-        "unlink.head:\n"
-        "  store ptr %next2, ptr @.cn.str_head\n"
-        "  br label %free.node\n"
-        "free.node:\n"
-        "  call void @free(ptr %curr.value)\n"
-        "  call void @free(ptr %curr)\n"
-        "  ret void\n"
-        "done:\n"
-        "  ret void\n"
-        "}\n\n",
-        stream
-    );
-    fputs(
-        "define private ptr @cn_dup_cstr(ptr %src) {\n"
-        "entry:\n"
-        "  %len = call i64 @strlen(ptr %src)\n"
-        "  %size = add i64 %len, 1\n"
-        "  %dst = call ptr @malloc(i64 %size)\n"
-        "  %has.dst = icmp ne ptr %dst, null\n"
-        "  br i1 %has.dst, label %copy, label %fallback\n"
-        "copy:\n"
-        "  %copied = call ptr @memcpy(ptr %dst, ptr %src, i64 %size)\n"
-        "  call void @cn_track_str(ptr %dst)\n"
-        "  ret ptr %dst\n"
-        "fallback:\n"
-        "  %empty.ptr = getelementptr inbounds [1 x i8], ptr @.cn.empty, i64 0, i64 0\n"
-        "  ret ptr %empty.ptr\n"
-        "}\n\n",
-        stream
-    );
-    fputs(
-        "define private ptr @cn_concat_str(ptr %left, ptr %right) {\n"
-        "entry:\n"
-        "  %left.len = call i64 @strlen(ptr %left)\n"
-        "  %right.len = call i64 @strlen(ptr %right)\n"
-        "  %total.no.null = add i64 %left.len, %right.len\n"
-        "  %total = add i64 %total.no.null, 1\n"
-        "  %dst = call ptr @malloc(i64 %total)\n"
-        "  %has.dst = icmp ne ptr %dst, null\n"
-        "  br i1 %has.dst, label %copy.left, label %fallback\n"
-        "copy.left:\n"
-        "  %left.copy = call ptr @memcpy(ptr %dst, ptr %left, i64 %left.len)\n"
-        "  %right.dst = getelementptr inbounds i8, ptr %dst, i64 %left.len\n"
-        "  %right.copy = call ptr @memcpy(ptr %right.dst, ptr %right, i64 %right.len)\n"
-        "  %null.dst = getelementptr inbounds i8, ptr %dst, i64 %total.no.null\n"
-        "  store i8 0, ptr %null.dst\n"
-        "  call void @cn_track_str(ptr %dst)\n"
-        "  ret ptr %dst\n"
-        "fallback:\n"
-        "  %empty.ptr = getelementptr inbounds [1 x i8], ptr @.cn.empty, i64 0, i64 0\n"
-        "  ret ptr %empty.ptr\n"
-        "}\n\n",
-        stream
-    );
-    fputs(
-        "define private void @cn_print_int(i64 %value) {\n"
-        "entry:\n"
-        "  %fmt = getelementptr inbounds [6 x i8], ptr @.cn.int_fmt, i64 0, i64 0\n"
-        "  call i32 (ptr, ...) @printf(ptr %fmt, i64 %value)\n"
-        "  ret void\n"
-        "}\n\n",
-        stream
-    );
-    fputs(
-        "define private void @cn_print_bool(i1 %value) {\n"
-        "entry:\n"
-        "  br i1 %value, label %l0, label %l1\n"
-        "l0:\n"
-        "  %true.ptr = getelementptr inbounds [5 x i8], ptr @.cn.true, i64 0, i64 0\n"
-        "  call i32 @puts(ptr %true.ptr)\n"
-        "  ret void\n"
-        "l1:\n"
-        "  %false.ptr = getelementptr inbounds [6 x i8], ptr @.cn.false, i64 0, i64 0\n"
-        "  call i32 @puts(ptr %false.ptr)\n"
-        "  ret void\n"
-        "}\n\n",
-        stream
-    );
-    fputs(
-        "define private void @cn_print_str(ptr %value) {\n"
-        "entry:\n"
-        "  call i32 @puts(ptr %value)\n"
-        "  ret void\n"
-        "}\n",
-        stream
-    );
-    fputs(
-        "\n"
-        "define private ptr @cn_input() {\n"
-        "entry:\n"
-        "  %buf = getelementptr inbounds [4096 x i8], ptr @.cn.input_buffer, i64 0, i64 0\n"
-        "  %index.slot = alloca i64\n"
-        "  store i64 0, ptr %index.slot\n"
-        "  br label %loop\n"
-        "loop:\n"
-        "  %index = load i64, ptr %index.slot\n"
-        "  %has.space = icmp slt i64 %index, 4095\n"
-        "  br i1 %has.space, label %read, label %finish\n"
-        "read:\n"
-        "  %ch = call i32 @getchar()\n"
-        "  %is.eof = icmp eq i32 %ch, -1\n"
-        "  br i1 %is.eof, label %finish, label %check_newline\n"
-        "check_newline:\n"
-        "  %is.newline = icmp eq i32 %ch, 10\n"
-        "  br i1 %is.newline, label %finish, label %store\n"
-        "store:\n"
-        "  %char.ptr = getelementptr inbounds i8, ptr %buf, i64 %index\n"
-        "  %char.byte = trunc i32 %ch to i8\n"
-        "  store i8 %char.byte, ptr %char.ptr\n"
-        "  %next.index = add i64 %index, 1\n"
-        "  store i64 %next.index, ptr %index.slot\n"
-        "  br label %loop\n"
-        "finish:\n"
-        "  %length = load i64, ptr %index.slot\n"
-        "  %end.ptr = getelementptr inbounds i8, ptr %buf, i64 %length\n"
-        "  store i8 0, ptr %end.ptr\n"
-        "  %owned = call ptr @cn_dup_cstr(ptr %buf)\n"
-        "  ret ptr %owned\n"
-        "}\n",
-        stream
-    );
 }
 
 static const cn_ir_function *cn_llvm_find_entry_function(const cn_ir_program *program) {

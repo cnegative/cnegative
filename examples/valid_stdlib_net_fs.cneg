@@ -1,0 +1,75 @@
+import std.strings as strings;
+import std.net as net;
+import std.fs as fs;
+
+fn:int main() {
+    let cwd:result str = fs.cwd();
+    if cwd.ok == false {
+        return 1;
+    }
+
+    if cwd.ok {
+        if strings.len(cwd.value) == 0 {
+            free cwd.value;
+            return 2;
+        }
+    }
+
+    if net.is_ipv4("127.0.0.1") == false {
+        if cwd.ok {
+            free cwd.value;
+        }
+        return 3;
+    }
+
+    if net.is_ipv4("256.0.0.1") {
+        if cwd.ok {
+            free cwd.value;
+        }
+        return 4;
+    }
+
+    let endpoint:str = net.join_host_port("127.0.0.1", 8080);
+    let write_ok:result bool = fs.write_text("build/std_net_fs.txt", endpoint);
+    if write_ok.ok == false {
+        if cwd.ok {
+            free cwd.value;
+        }
+        free endpoint;
+        return 5;
+    }
+
+    let size:result int = fs.file_size("build/std_net_fs.txt");
+    if size.ok == false {
+        if cwd.ok {
+            free cwd.value;
+        }
+        free endpoint;
+        return 6;
+    }
+
+    if size.ok {
+        if size.value != strings.len(endpoint) {
+            if cwd.ok {
+                free cwd.value;
+            }
+            free endpoint;
+            return 7;
+        }
+    }
+
+    let remove_ok:result bool = fs.remove("build/std_net_fs.txt");
+    if remove_ok.ok == false {
+        if cwd.ok {
+            free cwd.value;
+        }
+        free endpoint;
+        return 8;
+    }
+
+    if cwd.ok {
+        free cwd.value;
+    }
+    free endpoint;
+    return 0;
+}

@@ -47,6 +47,10 @@ void cn_program_destroy(cn_allocator *allocator, cn_program *program) {
         return;
     }
 
+    for (size_t i = 0; i < program->import_count; ++i) {
+        CN_FREE(allocator, program->imports[i].owned_module_name);
+    }
+
     for (size_t i = 0; i < program->struct_count; ++i) {
         cn_struct_decl_destroy(allocator, program->structs[i]);
     }
@@ -103,6 +107,7 @@ cn_block *cn_block_create(cn_allocator *allocator, size_t offset) {
 cn_function *cn_function_create(cn_allocator *allocator, size_t offset) {
     cn_function *function = CN_ALLOC(allocator, cn_function);
     function->is_public = false;
+    function->is_builtin = false;
     function->name = cn_sv_from_parts(NULL, 0);
     function->return_type = NULL;
     function->parameters.items = NULL;

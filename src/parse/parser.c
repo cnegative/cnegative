@@ -137,6 +137,50 @@ static cn_stmt *cn_parse_statement(cn_parser *parser);
 static cn_expr *cn_parse_expression(cn_parser *parser);
 static cn_expr *cn_parse_struct_literal(cn_parser *parser, cn_strview module_name, const cn_token *type_token);
 
+static cn_strview cn_parser_parse_import_path(cn_parser *parser, char **owned_module_name, cn_strview *default_alias, bool *ok) {
+    const cn_token *segment = cn_parser_consume(parser, CN_TOKEN_IDENTIFIER, "expected module name after 'import'");
+    if (segment == NULL) {
+        *owned_module_name = NULL;
+        *ok = false;
+        *default_alias = cn_sv_from_parts(NULL, 0);
+        return cn_sv_from_parts(NULL, 0);
+    }
+
+    cn_strview module_name = segment->lexeme;
+    char *buffer = NULL;
+    size_t length = segment->lexeme.length;
+    *default_alias = segment->lexeme;
+
+    while (cn_parser_match(parser, CN_TOKEN_DOT)) {
+        const cn_token *next_segment = cn_parser_consume(parser, CN_TOKEN_IDENTIFIER, "expected module path segment after '.'");
+        if (next_segment == NULL) {
+            if (buffer != NULL) {
+                CN_FREE(parser->allocator, buffer);
+            }
+            *owned_module_name = NULL;
+            *ok = false;
+            *default_alias = cn_sv_from_parts(NULL, 0);
+            return cn_sv_from_parts(NULL, 0);
+        }
+
+        if (buffer == NULL) {
+            buffer = CN_STRNDUP(parser->allocator, module_name.data, module_name.length);
+        }
+
+        buffer = CN_REALLOC(parser->allocator, buffer, char, length + 1 + next_segment->lexeme.length + 1);
+        buffer[length] = '.';
+        memcpy(buffer + length + 1, next_segment->lexeme.data, next_segment->lexeme.length);
+        length += 1 + next_segment->lexeme.length;
+        buffer[length] = '\0';
+        module_name = cn_sv_from_parts(buffer, length);
+        *default_alias = next_segment->lexeme;
+    }
+
+    *owned_module_name = buffer;
+    *ok = true;
+    return module_name;
+}
+
 void cn_parser_init(cn_parser *parser, cn_allocator *allocator, const cn_token_buffer *tokens, cn_diag_bag *diagnostics) {
     parser->allocator = allocator;
     parser->tokens = tokens;
@@ -775,14 +819,18 @@ static cn_block *cn_parse_block(cn_parser *parser) {
 }
 
 static bool cn_parse_import_decl(cn_parser *parser, cn_program *program, const cn_token *import_token) {
-    const cn_token *module_name = cn_parser_consume(parser, CN_TOKEN_IDENTIFIER, "expected module name after 'import'");
-    if (module_name == NULL) {
+    cn_import_decl import_decl;
+    cn_strview default_alias = cn_sv_from_parts(NULL, 0);
+    char *owned_module_name = NULL;
+    bool has_module_name = false;
+
+    import_decl.module_name = cn_parser_parse_import_path(parser, &owned_module_name, &default_alias, &has_module_name);
+    if (!has_module_name) {
         return false;
     }
 
-    cn_import_decl import_decl;
-    import_decl.module_name = module_name->lexeme;
-    import_decl.alias = module_name->lexeme;
+    import_decl.owned_module_name = owned_module_name;
+    import_decl.alias = default_alias;
     import_decl.has_alias = false;
     import_decl.offset = import_token->offset;
 

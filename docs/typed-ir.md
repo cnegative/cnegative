@@ -8,6 +8,7 @@
 - Module-level constant declarations lowered into canonical IR form.
 - Canonical module-qualified function and struct names in lowered output.
 - Canonical module-qualified public constants in lowered output.
+- Builtin stdlib calls preserved as canonical module-qualified builtin targets such as `std.math.clamp(...)`, `std.strings.concat(...)`, `std.io.write_line(...)`, `std.time.now_ms(...)`, `std.env.get(...)`, `std.path.extension(...)`, `std.fs.file_size(...)`, `std.net.join_host_port(...)`, and `std.process.platform(...)`.
 - Explicit return statements preserved from source.
 - Structured control flow preserved for `if`, `while`, `loop`, and range `for`.
 - Simple optimization passes run before later backend stages.
@@ -33,6 +34,22 @@ module valid_consts_strings (...) {
         return 20;
     }
 }
+```
+
+Builtin stdlib imports remain visible in the dumped IR as explicit calls, for example:
+
+```text
+let joined:str = std.strings.concat(copied, "2");
+let before:int = std.time.now_ms();
+std.time.sleep_ms(20);
+let parsed:result int = std.parse.to_int(text.value);
+std.io.write_line("ready");
+let env_value:result str = std.env.get("PATH");
+let path_value:str = std.path.join("build", "demo.txt");
+let cwd:result str = std.fs.cwd();
+let endpoint:str = std.net.join_host_port("127.0.0.1", 8080);
+let bounded:int = std.math.clamp(99, 0, 7);
+let platform:str = std.process.platform();
 ```
 
 Current optimization pass behavior:

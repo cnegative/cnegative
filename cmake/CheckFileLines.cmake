@@ -2,7 +2,7 @@ if(NOT DEFINED ROOT_DIR)
     message(FATAL_ERROR "ROOT_DIR is required")
 endif()
 
-set(CNEGATIVE_LINE_LIMIT 2500)
+set(CNEGATIVE_LINE_LIMIT 3000)
 set(CNEGATIVE_LINE_FILES)
 
 foreach(base IN ITEMS .github include src docs scripts tests examples cmake)

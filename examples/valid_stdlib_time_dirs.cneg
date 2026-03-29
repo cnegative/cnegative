@@ -1,0 +1,71 @@
+import std.strings as strings;
+import std.time as time;
+import std.fs as fs;
+import std.path as path;
+
+fn:int main() {
+    let before:int = time.now_ms();
+    time.sleep_ms(20);
+    let after:int = time.now_ms();
+    if after < before {
+        return 1;
+    }
+
+    let dir:str = path.join("build", "time_dir_demo");
+    let file:str = path.join(dir, "note.txt");
+
+    let make_dir:result bool = fs.create_dir(dir);
+    if make_dir.ok == false {
+        free dir;
+        free file;
+        return 2;
+    }
+
+    let write_ok:result bool = fs.write_text(file, "tick");
+    if write_ok.ok == false {
+        free dir;
+        free file;
+        return 3;
+    }
+
+    if fs.exists(file) == false {
+        free dir;
+        free file;
+        return 4;
+    }
+
+    let text:result str = fs.read_text(file);
+    if text.ok == false {
+        free dir;
+        free file;
+        return 5;
+    }
+
+    if text.ok {
+        if strings.eq(text.value, "tick") == false {
+            free text.value;
+            free dir;
+            free file;
+            return 6;
+        }
+        free text.value;
+    }
+
+    let remove_file:result bool = fs.remove(file);
+    if remove_file.ok == false {
+        free dir;
+        free file;
+        return 7;
+    }
+
+    let remove_dir:result bool = fs.remove_dir(dir);
+    if remove_dir.ok == false {
+        free dir;
+        free file;
+        return 8;
+    }
+
+    free dir;
+    free file;
+    return 0;
+}

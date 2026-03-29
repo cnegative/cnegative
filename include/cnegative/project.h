@@ -6,6 +6,7 @@
 #include "cnegative/source.h"
 
 typedef struct cn_module {
+    bool is_builtin_stdlib;
     char *name;
     char *path;
     char *directory;

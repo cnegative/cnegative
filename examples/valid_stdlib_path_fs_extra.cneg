@@ -1,0 +1,125 @@
+import std.strings as strings;
+import std.fs as fs;
+import std.path as path;
+
+fn:int main() {
+    let src:str = path.join("build", "path_extra.txt");
+    let copy:str = path.join("build", "path_extra_copy.txt");
+    let moved:str = path.join("build", "path_extra_moved.txt");
+
+    let write_ok:result bool = fs.write_text(src, "path-data");
+    if write_ok.ok == false {
+        free src;
+        free copy;
+        free moved;
+        return 1;
+    }
+
+    let copy_ok:result bool = fs.copy(src, copy);
+    if copy_ok.ok == false {
+        let remove_src:result bool = fs.remove(src);
+        free src;
+        free copy;
+        free moved;
+        return 2;
+    }
+
+    let move_ok:result bool = fs.move(copy, moved);
+    if move_ok.ok == false {
+        let remove_copy:result bool = fs.remove(copy);
+        let remove_src:result bool = fs.remove(src);
+        free src;
+        free copy;
+        free moved;
+        return 3;
+    }
+
+    if fs.exists(copy) {
+        let remove_src:result bool = fs.remove(src);
+        let remove_moved:result bool = fs.remove(moved);
+        free src;
+        free copy;
+        free moved;
+        return 4;
+    }
+
+    let text:result str = fs.read_text(moved);
+    if text.ok == false {
+        let remove_src:result bool = fs.remove(src);
+        let remove_moved:result bool = fs.remove(moved);
+        free src;
+        free copy;
+        free moved;
+        return 5;
+    }
+
+    if text.ok {
+        if strings.eq(text.value, "path-data") == false {
+            free text.value;
+            let remove_src:result bool = fs.remove(src);
+            let remove_moved:result bool = fs.remove(moved);
+            free src;
+            free copy;
+            free moved;
+            return 6;
+        }
+    }
+
+    let stem:str = path.stem(moved);
+    let ext:str = path.extension(moved);
+
+    if strings.eq(stem, "path_extra_moved") == false {
+        if text.ok {
+            free text.value;
+        }
+        free stem;
+        free ext;
+        let remove_src:result bool = fs.remove(src);
+        let remove_moved:result bool = fs.remove(moved);
+        free src;
+        free copy;
+        free moved;
+        return 7;
+    }
+
+    if strings.eq(ext, "txt") == false {
+        if text.ok {
+            free text.value;
+        }
+        free stem;
+        free ext;
+        let remove_src:result bool = fs.remove(src);
+        let remove_moved:result bool = fs.remove(moved);
+        free src;
+        free copy;
+        free moved;
+        return 8;
+    }
+
+    if path.is_absolute(moved) {
+        if text.ok {
+            free text.value;
+        }
+        free stem;
+        free ext;
+        let remove_src:result bool = fs.remove(src);
+        let remove_moved:result bool = fs.remove(moved);
+        free src;
+        free copy;
+        free moved;
+        return 9;
+    }
+
+    let remove_src:result bool = fs.remove(src);
+    let remove_moved:result bool = fs.remove(moved);
+
+    if text.ok {
+        free text.value;
+    }
+    free stem;
+    free ext;
+    free src;
+    free copy;
+    free moved;
+    return 0;
+}

@@ -1691,6 +1691,23 @@ static bool cn_check_function(cn_sema_ctx *ctx, const cn_function *function) {
     cn_scope root_scope = {0};
     ctx->current_function = function;
 
+    if (function->body == NULL) {
+        if (ctx->module != NULL && ctx->module->is_builtin_stdlib && function->is_builtin) {
+            return true;
+        }
+
+        cn_diag_emit(
+            ctx->diagnostics,
+            CN_DIAG_ERROR,
+            "E3020",
+            function->offset,
+            "semantic analysis expected a function body for '%.*s'",
+            (int)function->name.length,
+            function->name.data
+        );
+        return false;
+    }
+
     for (size_t i = 0; i < function->parameters.count; ++i) {
         cn_scope_define(ctx, &root_scope, function->parameters.items[i].name, function->parameters.items[i].type, false, function->parameters.items[i].offset);
     }

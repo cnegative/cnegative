@@ -1,0 +1,67 @@
+import std.strings as strings;
+import std.io as io;
+import std.fs as fs;
+import std.path as path;
+
+fn:int main() {
+    let original:str = path.join("build", "io_fs_demo.txt");
+    let renamed:str = path.join("build", "io_fs_demo_renamed.txt");
+
+    let write_ok:result bool = fs.write_text(original, "first");
+    if write_ok.ok == false {
+        free original;
+        free renamed;
+        return 1;
+    }
+
+    let append_ok:result bool = fs.append_text(original, "-second");
+    if append_ok.ok == false {
+        free original;
+        free renamed;
+        return 2;
+    }
+
+    let rename_ok:result bool = fs.rename(original, renamed);
+    if rename_ok.ok == false {
+        free original;
+        free renamed;
+        return 3;
+    }
+
+    let text:result str = fs.read_text(renamed);
+    if text.ok == false {
+        free original;
+        free renamed;
+        return 4;
+    }
+
+    if text.ok {
+        if strings.eq(text.value, "first-second") == false {
+            free text.value;
+            free original;
+            free renamed;
+            return 5;
+        }
+
+        io.write("io:");
+        io.write_line("ready");
+        free text.value;
+    }
+
+    let remove_ok:result bool = fs.remove(renamed);
+    if remove_ok.ok == false {
+        free original;
+        free renamed;
+        return 6;
+    }
+
+    if fs.exists(renamed) {
+        free original;
+        free renamed;
+        return 7;
+    }
+
+    free original;
+    free renamed;
+    return 0;
+}
