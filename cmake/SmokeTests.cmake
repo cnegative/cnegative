@@ -19,6 +19,7 @@ endif()
 set(TMP_DIR "${CMAKE_CURRENT_BINARY_DIR}/cnegc-smoke")
 file(REMOVE_RECURSE "${TMP_DIR}")
 file(MAKE_DIRECTORY "${TMP_DIR}")
+file(MAKE_DIRECTORY "${ROOT_DIR}/build")
 
 set(TMP_VALID "${TMP_DIR}/valid.txt")
 set(TMP_INVALID "${TMP_DIR}/invalid.txt")

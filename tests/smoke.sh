@@ -12,6 +12,7 @@ tmp_run=$(mktemp)
 trap 'rm -f "$tmp_valid" "$tmp_invalid" "$tmp_ir" "$tmp_ll" "$tmp_bc" "$tmp_obj" "$tmp_bin" "$tmp_run"' EXIT
 
 rm -f "$tmp_obj" "$tmp_bin"
+mkdir -p build
 
 LLVM_AS_BIN=""
 CLANG_BIN=""
