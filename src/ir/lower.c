@@ -17,6 +17,11 @@ typedef struct cn_ir_resolved_struct {
     const cn_struct_decl *decl;
 } cn_ir_resolved_struct;
 
+typedef struct cn_ir_resolved_const {
+    const cn_module *module;
+    const cn_const_decl *decl;
+} cn_ir_resolved_const;
+
 typedef struct cn_ir_lower_ctx {
     cn_allocator *allocator;
     const cn_project *project;
@@ -83,6 +88,24 @@ static const cn_function *cn_ir_find_public_function(const cn_module *module, cn
     for (size_t i = 0; i < module->program->function_count; ++i) {
         if (module->program->functions[i]->is_public && cn_sv_eq(module->program->functions[i]->name, name)) {
             return module->program->functions[i];
+        }
+    }
+    return NULL;
+}
+
+static const cn_const_decl *cn_ir_find_const(const cn_module *module, cn_strview name) {
+    for (size_t i = 0; i < module->program->const_count; ++i) {
+        if (cn_sv_eq(module->program->consts[i]->name, name)) {
+            return module->program->consts[i];
+        }
+    }
+    return NULL;
+}
+
+static const cn_const_decl *cn_ir_find_public_const(const cn_module *module, cn_strview name) {
+    for (size_t i = 0; i < module->program->const_count; ++i) {
+        if (module->program->consts[i]->is_public && cn_sv_eq(module->program->consts[i]->name, name)) {
+            return module->program->consts[i];
         }
     }
     return NULL;
@@ -159,6 +182,42 @@ static const cn_module *cn_ir_resolve_canonical_named_module(cn_ir_lower_ctx *ct
     }
 
     return cn_ir_find_imported_module(ctx->module, module_name);
+}
+
+static cn_ir_resolved_const cn_ir_resolve_const_in_module(const cn_module *module, cn_strview const_name) {
+    cn_ir_resolved_const result;
+    result.module = NULL;
+    result.decl = NULL;
+
+    if (module == NULL || module->program == NULL) {
+        return result;
+    }
+
+    result.module = module;
+    result.decl = cn_ir_find_const(module, const_name);
+    if (result.decl == NULL) {
+        result.module = NULL;
+    }
+    return result;
+}
+
+static cn_ir_resolved_const cn_ir_resolve_source_named_const(cn_ir_lower_ctx *ctx, cn_strview module_name, cn_strview const_name) {
+    const cn_module *module = cn_ir_resolve_source_named_module(ctx, module_name);
+    if (module == NULL) {
+        return cn_ir_resolve_const_in_module(NULL, const_name);
+    }
+
+    if (module == ctx->module) {
+        return cn_ir_resolve_const_in_module(module, const_name);
+    }
+
+    cn_ir_resolved_const result;
+    result.module = module;
+    result.decl = cn_ir_find_public_const(module, const_name);
+    if (result.decl == NULL) {
+        result.module = NULL;
+    }
+    return result;
 }
 
 static cn_ir_resolved_struct cn_ir_resolve_struct_in_module(const cn_module *module, cn_strview type_name) {
@@ -260,6 +319,12 @@ static cn_ir_binary_op cn_ir_binary_from_ast(cn_binary_op op) {
 }
 
 static cn_ir_expr *cn_ir_lower_expression(cn_ir_lower_ctx *ctx, cn_ir_scope *scope, const cn_expr *expression, const cn_ir_type *expected);
+static cn_ir_expr *cn_ir_lower_const_use(
+    cn_ir_lower_ctx *ctx,
+    const cn_module *module,
+    const cn_const_decl *const_decl,
+    const cn_ir_type *expected
+);
 static cn_ir_block *cn_ir_lower_block(
     cn_ir_lower_ctx *ctx,
     cn_ir_scope *parent,
@@ -267,6 +332,21 @@ static cn_ir_block *cn_ir_lower_block(
     bool creates_scope,
     const cn_ir_type *function_return_type
 );
+
+static cn_ir_expr *cn_ir_lower_const_use(
+    cn_ir_lower_ctx *ctx,
+    const cn_module *module,
+    const cn_const_decl *const_decl,
+    const cn_ir_type *expected
+) {
+    const cn_module *previous_module = ctx->module;
+    cn_ir_expr *expression = NULL;
+
+    ctx->module = module;
+    expression = cn_ir_lower_expression(ctx, NULL, const_decl->initializer, expected);
+    ctx->module = previous_module;
+    return expression;
+}
 
 static cn_ir_expr *cn_ir_lower_with_builtin_expected(
     cn_ir_lower_ctx *ctx,
@@ -374,6 +454,17 @@ static cn_ir_expr *cn_ir_lower_struct_literal(cn_ir_lower_ctx *ctx, cn_ir_scope 
 }
 
 static cn_ir_expr *cn_ir_lower_field_access(cn_ir_lower_ctx *ctx, cn_ir_scope *scope, const cn_expr *expression) {
+    if (expression->data.field.base->kind == CN_EXPR_NAME) {
+        cn_ir_resolved_const resolved_const = cn_ir_resolve_source_named_const(
+            ctx,
+            expression->data.field.base->data.name,
+            expression->data.field.field_name
+        );
+        if (resolved_const.decl != NULL) {
+            return cn_ir_lower_const_use(ctx, resolved_const.module, resolved_const.decl, NULL);
+        }
+    }
+
     cn_ir_expr *base = cn_ir_lower_expression(ctx, scope, expression->data.field.base, NULL);
     if (base == NULL) {
         return NULL;
@@ -498,6 +589,16 @@ static cn_ir_expr *cn_ir_lower_call(cn_ir_lower_ctx *ctx, cn_ir_scope *scope, co
             return ir_expression;
         }
 
+        if (cn_sv_eq_cstr(callee, "str_copy") || cn_sv_eq_cstr(callee, "str_concat")) {
+            ir_expression->data.call.target_kind = CN_IR_CALL_BUILTIN;
+            ir_expression->data.call.function_name = callee;
+            if (!cn_ir_lower_call_arguments(ctx, scope, ir_expression, &expression->data.call.arguments, NULL)) {
+                return ir_expression;
+            }
+            ir_expression->type = cn_ir_make_builtin_type(ctx->allocator, CN_IR_TYPE_STR);
+            return ir_expression;
+        }
+
         const cn_function *function = cn_ir_find_local_function(ctx->module, callee);
         if (function == NULL) {
             cn_ir_emit_internal_error(ctx, expression->offset, "typed IR lowering could not resolve a checked local function call");
@@ -568,15 +669,20 @@ static cn_ir_expr *cn_ir_lower_expression(cn_ir_lower_ctx *ctx, cn_ir_scope *sco
         return ir_expression;
     case CN_EXPR_NAME: {
         const cn_ir_binding *binding = cn_ir_scope_lookup(scope, expression->data.name);
-        if (binding == NULL) {
-            cn_ir_emit_internal_error(ctx, expression->offset, "typed IR lowering could not resolve a checked local name");
-            return NULL;
+        if (binding != NULL) {
+            ir_expression = cn_ir_expr_create(ctx->allocator, CN_IR_EXPR_LOCAL, expression->offset);
+            ir_expression->data.local_name = expression->data.name;
+            ir_expression->type = cn_ir_type_clone(ctx->allocator, binding->type);
+            return ir_expression;
         }
 
-        ir_expression = cn_ir_expr_create(ctx->allocator, CN_IR_EXPR_LOCAL, expression->offset);
-        ir_expression->data.local_name = expression->data.name;
-        ir_expression->type = cn_ir_type_clone(ctx->allocator, binding->type);
-        return ir_expression;
+        cn_ir_resolved_const resolved_const = cn_ir_resolve_const_in_module(ctx->module, expression->data.name);
+        if (resolved_const.decl != NULL) {
+            return cn_ir_lower_const_use(ctx, resolved_const.module, resolved_const.decl, expected);
+        }
+
+        cn_ir_emit_internal_error(ctx, expression->offset, "typed IR lowering could not resolve a checked local or constant name");
+        return NULL;
     }
     case CN_EXPR_UNARY: {
         cn_ir_expr *operand = cn_ir_lower_expression(ctx, scope, expression->data.unary.operand, NULL);
@@ -885,6 +991,19 @@ static cn_ir_block *cn_ir_lower_block(
     return ir_block;
 }
 
+static cn_ir_const *cn_ir_lower_const(cn_ir_lower_ctx *ctx, const cn_const_decl *const_decl) {
+    cn_ir_const *ir_const = cn_ir_const_create(
+        ctx->allocator,
+        cn_sv_from_cstr(ctx->module->name),
+        const_decl->name,
+        const_decl->is_public,
+        const_decl->offset
+    );
+    ir_const->type = cn_ir_type_from_ast(ctx->allocator, const_decl->type);
+    ir_const->initializer = cn_ir_lower_const_use(ctx, ctx->module, const_decl, ir_const->type);
+    return ir_const;
+}
+
 static cn_ir_struct *cn_ir_lower_struct(cn_ir_lower_ctx *ctx, const cn_struct_decl *struct_decl) {
     cn_ir_struct *ir_struct = cn_ir_struct_create(
         ctx->allocator,
@@ -937,6 +1056,10 @@ static cn_ir_module *cn_ir_lower_module(cn_ir_lower_ctx *ctx) {
         cn_sv_from_cstr(ctx->module->path),
         &ctx->module->source
     );
+
+    for (size_t i = 0; i < ctx->module->program->const_count; ++i) {
+        cn_ir_module_push_const(ir_module, ctx->allocator, cn_ir_lower_const(ctx, ctx->module->program->consts[i]));
+    }
 
     for (size_t i = 0; i < ctx->module->program->struct_count; ++i) {
         cn_ir_module_push_struct(ir_module, ctx->allocator, cn_ir_lower_struct(ctx, ctx->module->program->structs[i]));

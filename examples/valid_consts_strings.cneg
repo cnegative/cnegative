@@ -1,0 +1,17 @@
+import numbers as n;
+
+const LOCAL:int = n.SHIFT + 8;
+const READY:bool = n.FLAG && (LOCAL == 20);
+
+fn:int main() {
+    let copied:str = str_copy(n.GREETING);
+    let joined:str = str_concat(copied, " world");
+
+    if READY {
+        print(joined);
+    }
+
+    free copied;
+    free joined;
+    return LOCAL;
+}

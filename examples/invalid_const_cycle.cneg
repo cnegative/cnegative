@@ -1,0 +1,6 @@
+const A:int = B;
+const B:int = A;
+
+fn:int main() {
+    return A;
+}

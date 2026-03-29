@@ -1,9 +1,19 @@
 # Roadmap
 
-Near-term compiler work:
+Current priority order:
 
-1. Generalize the runtime string story beyond `input()` so ownership is explicit for more than one producer.
-2. Add module-level constants and finish visibility rules for future exported symbols beyond functions and structs.
-3. Improve parser recovery so one syntax mistake does not collapse the rest of the file into follow-on errors.
-4. Add more backend/runtime coverage for richer standard-library surface area.
-5. Introduce optimization passes on typed IR before LLVM lowering.
+1. Expand the standard library/runtime surface now that owned strings are no longer limited to `input()`.
+2. Continue the next compiler phase after the current frontend, typed IR, optimizer, and LLVM pipeline are more stable.
+3. Tighten release/install/tooling ergonomics around the current compiler workflow.
+
+Recently completed:
+
+- runtime-owned strings beyond `input()`
+- module-level constants and broader top-level visibility groundwork
+- parser recovery for continued syntax diagnostics
+- typed IR optimization before LLVM lowering
+
+Current intent:
+
+- Focus next on stdlib/runtime breadth.
+- Shift attention back to the next compiler phase after that.

@@ -76,6 +76,9 @@ static int cn_run_ir(const char *path) {
 
     if (project != NULL && !cn_diag_has_error(&diagnostics)) {
         cn_ir_lower_project(&allocator, project, &diagnostics, &program);
+        if (program != NULL && !cn_diag_has_error(&diagnostics)) {
+            cn_ir_optimize_program(&allocator, program);
+        }
     }
 
     if (!cn_diag_has_error(&diagnostics) && program != NULL) {
@@ -101,6 +104,9 @@ static int cn_run_llvm_ir(const char *path) {
 
     if (project != NULL && !cn_diag_has_error(&diagnostics)) {
         cn_ir_lower_project(&allocator, project, &diagnostics, &program);
+        if (program != NULL && !cn_diag_has_error(&diagnostics)) {
+            cn_ir_optimize_program(&allocator, program);
+        }
     }
 
     if (program != NULL && !cn_diag_has_error(&diagnostics)) {
@@ -151,6 +157,9 @@ static int cn_run_object(const char *path, const char *output_path) {
 
     if (project != NULL && !cn_diag_has_error(&diagnostics)) {
         cn_ir_lower_project(&allocator, project, &diagnostics, &program);
+        if (program != NULL && !cn_diag_has_error(&diagnostics)) {
+            cn_ir_optimize_program(&allocator, program);
+        }
     }
 
     if (program != NULL && !cn_diag_has_error(&diagnostics)) {
@@ -176,6 +185,9 @@ static int cn_run_build(const char *path, const char *output_path) {
 
     if (project != NULL && !cn_diag_has_error(&diagnostics)) {
         cn_ir_lower_project(&allocator, project, &diagnostics, &program);
+        if (program != NULL && !cn_diag_has_error(&diagnostics)) {
+            cn_ir_optimize_program(&allocator, program);
+        }
     }
 
     if (program != NULL && !cn_diag_has_error(&diagnostics)) {

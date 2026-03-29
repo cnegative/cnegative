@@ -279,7 +279,24 @@ static bool cn_llvm_validate_call(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expre
             return true;
         }
 
-        cn_llvm_emit_unsupported_feature(ctx->diagnostics, expression->offset, "builtin calls other than print/input");
+        if (cn_sv_eq_cstr(expression->data.call.function_name, "str_copy")) {
+            if (expression->data.call.arguments.count != 1) {
+                cn_llvm_emit_unsupported_feature(ctx->diagnostics, expression->offset, "unexpected builtin str_copy arity");
+                return false;
+            }
+            return cn_llvm_validate_expression(ctx, expression->data.call.arguments.items[0]);
+        }
+
+        if (cn_sv_eq_cstr(expression->data.call.function_name, "str_concat")) {
+            if (expression->data.call.arguments.count != 2) {
+                cn_llvm_emit_unsupported_feature(ctx->diagnostics, expression->offset, "unexpected builtin str_concat arity");
+                return false;
+            }
+            return cn_llvm_validate_expression(ctx, expression->data.call.arguments.items[0]) &&
+                   cn_llvm_validate_expression(ctx, expression->data.call.arguments.items[1]);
+        }
+
+        cn_llvm_emit_unsupported_feature(ctx->diagnostics, expression->offset, "builtin calls other than print/input/str_copy/str_concat");
         return false;
     }
 
@@ -1307,6 +1324,37 @@ static cn_llvm_value cn_llvm_lower_builtin_call(cn_llvm_function_ctx *ctx, cn_ll
         return cn_llvm_register_value(&g_llvm_str_type, reg_id);
     }
 
+    if (cn_sv_eq_cstr(expression->data.call.function_name, "str_copy")) {
+        cn_llvm_value argument = cn_llvm_lower_expression(ctx, scope, expression->data.call.arguments.items[0]);
+        int reg_id = cn_llvm_next_temp(ctx);
+        if (!argument.is_valid) {
+            return cn_llvm_invalid_value(expression->type);
+        }
+        cn_llvm_emit_indent(ctx->emit->stream);
+        cn_llvm_emit_reg(ctx->emit->stream, reg_id);
+        fputs(" = call ptr @cn_dup_cstr(ptr ", ctx->emit->stream);
+        cn_llvm_emit_value_ref(ctx->emit->stream, argument);
+        fputs(")\n", ctx->emit->stream);
+        return cn_llvm_register_value(&g_llvm_str_type, reg_id);
+    }
+
+    if (cn_sv_eq_cstr(expression->data.call.function_name, "str_concat")) {
+        cn_llvm_value left = cn_llvm_lower_expression(ctx, scope, expression->data.call.arguments.items[0]);
+        cn_llvm_value right = cn_llvm_lower_expression(ctx, scope, expression->data.call.arguments.items[1]);
+        int reg_id = cn_llvm_next_temp(ctx);
+        if (!left.is_valid || !right.is_valid) {
+            return cn_llvm_invalid_value(expression->type);
+        }
+        cn_llvm_emit_indent(ctx->emit->stream);
+        cn_llvm_emit_reg(ctx->emit->stream, reg_id);
+        fputs(" = call ptr @cn_concat_str(ptr ", ctx->emit->stream);
+        cn_llvm_emit_value_ref(ctx->emit->stream, left);
+        fputs(", ptr ", ctx->emit->stream);
+        cn_llvm_emit_value_ref(ctx->emit->stream, right);
+        fputs(")\n", ctx->emit->stream);
+        return cn_llvm_register_value(&g_llvm_str_type, reg_id);
+    }
+
     if (!cn_sv_eq_cstr(expression->data.call.function_name, "print")) {
         return cn_llvm_invalid_value(expression->type);
     }
@@ -2151,6 +2199,30 @@ static void cn_llvm_emit_runtime_prelude(FILE *stream) {
         "  br i1 %has.dst, label %copy, label %fallback\n"
         "copy:\n"
         "  %copied = call ptr @memcpy(ptr %dst, ptr %src, i64 %size)\n"
+        "  call void @cn_track_str(ptr %dst)\n"
+        "  ret ptr %dst\n"
+        "fallback:\n"
+        "  %empty.ptr = getelementptr inbounds [1 x i8], ptr @.cn.empty, i64 0, i64 0\n"
+        "  ret ptr %empty.ptr\n"
+        "}\n\n",
+        stream
+    );
+    fputs(
+        "define private ptr @cn_concat_str(ptr %left, ptr %right) {\n"
+        "entry:\n"
+        "  %left.len = call i64 @strlen(ptr %left)\n"
+        "  %right.len = call i64 @strlen(ptr %right)\n"
+        "  %total.no.null = add i64 %left.len, %right.len\n"
+        "  %total = add i64 %total.no.null, 1\n"
+        "  %dst = call ptr @malloc(i64 %total)\n"
+        "  %has.dst = icmp ne ptr %dst, null\n"
+        "  br i1 %has.dst, label %copy.left, label %fallback\n"
+        "copy.left:\n"
+        "  %left.copy = call ptr @memcpy(ptr %dst, ptr %left, i64 %left.len)\n"
+        "  %right.dst = getelementptr inbounds i8, ptr %dst, i64 %left.len\n"
+        "  %right.copy = call ptr @memcpy(ptr %right.dst, ptr %right, i64 %right.len)\n"
+        "  %null.dst = getelementptr inbounds i8, ptr %dst, i64 %total.no.null\n"
+        "  store i8 0, ptr %null.dst\n"
         "  call void @cn_track_str(ptr %dst)\n"
         "  ret ptr %dst\n"
         "fallback:\n"

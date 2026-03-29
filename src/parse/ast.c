@@ -7,6 +7,7 @@ static void cn_expr_destroy(cn_allocator *allocator, cn_expr *expression);
 static void cn_stmt_destroy(cn_allocator *allocator, cn_stmt *statement);
 static void cn_block_destroy(cn_allocator *allocator, cn_block *block);
 static void cn_function_destroy(cn_allocator *allocator, cn_function *function);
+static void cn_const_decl_destroy(cn_allocator *allocator, cn_const_decl *const_decl);
 static void cn_struct_decl_destroy(cn_allocator *allocator, cn_struct_decl *struct_decl);
 
 static void *cn_grow_items(cn_allocator *allocator, void *items, size_t item_size, size_t *capacity, size_t required) {
@@ -29,6 +30,9 @@ cn_program *cn_program_create(cn_allocator *allocator) {
     program->imports = NULL;
     program->import_count = 0;
     program->import_capacity = 0;
+    program->consts = NULL;
+    program->const_count = 0;
+    program->const_capacity = 0;
     program->structs = NULL;
     program->struct_count = 0;
     program->struct_capacity = 0;
@@ -47,11 +51,16 @@ void cn_program_destroy(cn_allocator *allocator, cn_program *program) {
         cn_struct_decl_destroy(allocator, program->structs[i]);
     }
 
+    for (size_t i = 0; i < program->const_count; ++i) {
+        cn_const_decl_destroy(allocator, program->consts[i]);
+    }
+
     for (size_t i = 0; i < program->function_count; ++i) {
         cn_function_destroy(allocator, program->functions[i]);
     }
 
     CN_FREE(allocator, program->imports);
+    CN_FREE(allocator, program->consts);
     CN_FREE(allocator, program->structs);
     CN_FREE(allocator, program->functions);
     CN_FREE(allocator, program);
@@ -104,6 +113,18 @@ cn_function *cn_function_create(cn_allocator *allocator, size_t offset) {
     return function;
 }
 
+cn_const_decl *cn_const_decl_create(cn_allocator *allocator, size_t offset) {
+    cn_const_decl *const_decl = CN_ALLOC(allocator, cn_const_decl);
+    const_decl->is_public = false;
+    const_decl->name = cn_sv_from_parts(NULL, 0);
+    const_decl->type = NULL;
+    const_decl->initializer = NULL;
+    const_decl->sema_checked = false;
+    const_decl->sema_checking = false;
+    const_decl->offset = offset;
+    return const_decl;
+}
+
 cn_struct_decl *cn_struct_decl_create(cn_allocator *allocator, size_t offset) {
     cn_struct_decl *struct_decl = CN_ALLOC(allocator, cn_struct_decl);
     struct_decl->is_public = false;
@@ -124,6 +145,18 @@ bool cn_program_push_import(cn_program *program, cn_import_decl import_decl) {
         program->import_count + 1
     );
     program->imports[program->import_count++] = import_decl;
+    return true;
+}
+
+bool cn_program_push_const(cn_program *program, cn_const_decl *const_decl) {
+    program->consts = (cn_const_decl **)cn_grow_items(
+        program->allocator,
+        program->consts,
+        sizeof(cn_const_decl *),
+        &program->const_capacity,
+        program->const_count + 1
+    );
+    program->consts[program->const_count++] = const_decl;
     return true;
 }
 
@@ -431,6 +464,16 @@ static void cn_function_destroy(cn_allocator *allocator, cn_function *function) 
     CN_FREE(allocator, function->parameters.items);
     cn_block_destroy(allocator, function->body);
     CN_FREE(allocator, function);
+}
+
+static void cn_const_decl_destroy(cn_allocator *allocator, cn_const_decl *const_decl) {
+    if (const_decl == NULL) {
+        return;
+    }
+
+    cn_type_destroy(allocator, const_decl->type);
+    cn_expr_destroy(allocator, const_decl->initializer);
+    CN_FREE(allocator, const_decl);
 }
 
 static void cn_struct_decl_destroy(cn_allocator *allocator, cn_struct_decl *struct_decl) {

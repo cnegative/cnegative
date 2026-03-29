@@ -15,6 +15,7 @@ set(CNEGATIVE_C_SOURCES
     src/cli/main.c
     src/ir/ir.c
     src/ir/lower.c
+    src/ir/optimize.c
     src/lex/lexer.c
     src/lex/token.c
     src/parse/ast.c

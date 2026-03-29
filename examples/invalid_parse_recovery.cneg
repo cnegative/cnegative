@@ -1,0 +1,8 @@
+const A:int = 1
+const B:int = 2
+
+fn:int main() {
+    let x:int = 1
+    let y:int = 2
+    return B;
+}

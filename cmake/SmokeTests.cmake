@@ -122,6 +122,7 @@ cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_importe
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_llvm_backend.cneg)
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_strings.cneg)
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_input_equality.cneg)
+cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_consts_strings.cneg)
 
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" bench-lexer examples/valid_basic.cneg 5)
 cn_assert_contains("${TMP_VALID}" "tokens_per_second:")
@@ -133,6 +134,11 @@ cn_assert_contains("${TMP_IR}" "return w.point.y;")
 cn_run_expect_success("${TMP_IR}" "${CNEGC_BIN}" ir examples/valid_modules_ptr_result.cneg)
 cn_assert_contains("${TMP_IR}" "return ok (a / b);")
 cn_assert_contains("${TMP_IR}" "deref px")
+
+cn_run_expect_success("${TMP_IR}" "${CNEGC_BIN}" ir examples/valid_consts_strings.cneg)
+cn_assert_contains("${TMP_IR}" "const valid_consts_strings.LOCAL:int = 20;")
+cn_assert_contains("${TMP_IR}" "if true {")
+cn_assert_contains("${TMP_IR}" "return 20;")
 
 cn_run_expect_success("${TMP_LL}" "${CNEGC_BIN}" llvm-ir examples/valid_basic.cneg)
 cn_assert_contains("${TMP_LL}" "@cn_valid_basic__main")
@@ -164,6 +170,11 @@ cn_assert_contains("${TMP_LL}" "@cn_free_str")
 cn_assert_contains("${TMP_LL}" "@strcmp")
 cn_verify_llvm_ir("${TMP_LL}" "${TMP_BC}")
 
+cn_run_expect_success("${TMP_LL}" "${CNEGC_BIN}" llvm-ir examples/valid_consts_strings.cneg)
+cn_assert_contains("${TMP_LL}" "@cn_concat_str")
+cn_assert_contains("${TMP_LL}" "call ptr @cn_dup_cstr")
+cn_verify_llvm_ir("${TMP_LL}" "${TMP_BC}")
+
 cn_run_expect_failure("${TMP_INVALID}" "${CNEGC_BIN}" check examples/invalid_if_int_condition.cneg)
 cn_assert_contains("${TMP_INVALID}" "E3005")
 
@@ -187,6 +198,20 @@ cn_assert_contains("${TMP_INVALID}" "E3024")
 
 cn_run_expect_failure("${TMP_INVALID}" "${CNEGC_BIN}" check examples/invalid_implicit_return.cneg)
 cn_assert_contains("${TMP_INVALID}" "E3007")
+
+cn_run_expect_failure("${TMP_INVALID}" "${CNEGC_BIN}" check examples/invalid_const_runtime.cneg)
+cn_assert_contains("${TMP_INVALID}" "E3025")
+
+cn_run_expect_failure("${TMP_INVALID}" "${CNEGC_BIN}" check examples/invalid_const_cycle.cneg)
+cn_assert_contains("${TMP_INVALID}" "E3026")
+
+cn_run_expect_failure("${TMP_INVALID}" "${CNEGC_BIN}" check examples/invalid_parse_recovery.cneg)
+file(READ "${TMP_INVALID}" invalid_recovery_output)
+string(REGEX MATCHALL "expected ';'" recovery_matches "${invalid_recovery_output}")
+list(LENGTH recovery_matches recovery_count)
+if(recovery_count LESS 4)
+    message(FATAL_ERROR "expected parser recovery to report multiple semicolon errors\nactual output:\n${invalid_recovery_output}")
+endif()
 
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" obj examples/valid_basic.cneg "${TMP_OBJ}")
 if(NOT EXISTS "${TMP_OBJ}")
@@ -215,3 +240,7 @@ file(WRITE "${TMP_STDIN}" "neo\n")
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" build examples/valid_input_equality.cneg "${TMP_BIN}")
 cn_run_binary("${TMP_RUN}" 1 "${TMP_STDIN}" "${TMP_BIN}")
 cn_assert_contains("${TMP_RUN}" "neo")
+
+cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" build examples/valid_consts_strings.cneg "${TMP_BIN}")
+cn_run_binary("${TMP_RUN}" 20 "" "${TMP_BIN}")
+cn_assert_contains("${TMP_RUN}" "hello world")

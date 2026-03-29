@@ -31,6 +31,13 @@ pstruct Point {
 }
 ```
 
+Module-level constants use `const` and `pconst`.
+
+```lang
+const LIMIT:int = 16;
+pconst GREETING:str = "hello";
+```
+
 ### Variables
 
 ```lang
@@ -114,6 +121,20 @@ fn:int main() {
 
 `import name;` resolves `name.cneg` relative to the importing file. Only `pfn` functions are callable from another module. The loader still accepts legacy `.cn` imports during the transition.
 
+Public constants are also available through a qualified module name:
+
+```lang
+import numbers as n;
+
+const LOCAL:int = n.BASE + 4;
+```
+
+Current constant rules:
+
+- `pconst` exports a module-level constant.
+- Constant initializers must stay compile-time and cannot perform runtime calls or memory operations.
+- Cyclic constant definitions are rejected.
+
 Imported struct types are also available through a qualified name:
 
 ```lang
@@ -171,18 +192,22 @@ Source
 -> AST
 -> Semantic Analysis
 -> Typed IR
+-> Typed IR Optimization
 -> LLVM IR
 -> Object File
 -> Static Linking
 -> Binary
 ```
 
-`build/cnegc ir <file>` dumps the checked project as typed IR. The current IR keeps structured control flow, preserves explicit returns, and resolves module-qualified calls to canonical module names.
+`build/cnegc ir <file>` dumps the checked project as typed IR after constant folding and simple dead-statement cleanup. The current IR keeps structured control flow, preserves explicit returns, and resolves module-qualified calls and constants to canonical module names.
 
 `build/cnegc llvm-ir <file>` lowers the checked subset into textual LLVM IR. The current backend handles `int`, `bool`, `str`, arrays, structs, `ptr`, `result`, structured control flow, local bindings, allocation/free, local calls, and imported module calls. `build/cnegc obj <file> [output]` emits an object file, and `build/cnegc build <file> [output]` links a runnable binary through `clang-18` or `clang`.
 
 Current runtime notes:
 
 - `input()` returns an owned heap-backed string copy in the generated runtime helper.
-- `free some_string;` releases tracked owned strings created by `input()`. Freeing string literals is a safe no-op in the generated runtime.
+- `str_copy(s)` returns a new owned heap-backed copy of `s`.
+- `str_concat(a, b)` returns a new owned heap-backed concatenated string.
+- `free some_string;` releases tracked owned strings created by `input()`, `str_copy(...)`, or `str_concat(...)`. Freeing string literals is a safe no-op in the generated runtime.
 - `str` equality in the backend is content-based through `strcmp`, not pointer-identity based.
+- The parser now recovers across common statement and top-level syntax errors so one missing `;` does not collapse the whole file into a single follow-on failure.

@@ -80,6 +80,57 @@ static void cn_parser_require_semicolon(cn_parser *parser, const char *message) 
     cn_parser_consume(parser, CN_TOKEN_SEMICOLON, message);
 }
 
+static bool cn_parser_is_top_level_start(cn_token_kind kind) {
+    return kind == CN_TOKEN_IMPORT ||
+           kind == CN_TOKEN_CONST ||
+           kind == CN_TOKEN_PCONST ||
+           kind == CN_TOKEN_STRUCT ||
+           kind == CN_TOKEN_PSTRUCT ||
+           kind == CN_TOKEN_FN ||
+           kind == CN_TOKEN_PFN ||
+           kind == CN_TOKEN_EOF;
+}
+
+static bool cn_parser_is_statement_start(cn_token_kind kind) {
+    return kind == CN_TOKEN_LET ||
+           kind == CN_TOKEN_RETURN ||
+           kind == CN_TOKEN_FREE ||
+           kind == CN_TOKEN_IF ||
+           kind == CN_TOKEN_WHILE ||
+           kind == CN_TOKEN_LOOP ||
+           kind == CN_TOKEN_FOR;
+}
+
+static void cn_parser_sync_statement(cn_parser *parser) {
+    while (!cn_parser_is_at_end(parser)) {
+        if (cn_parser_match(parser, CN_TOKEN_SEMICOLON)) {
+            return;
+        }
+
+        if (cn_parser_check(parser, CN_TOKEN_RBRACE) ||
+            cn_parser_is_statement_start(cn_parser_current(parser)->kind) ||
+            cn_parser_is_top_level_start(cn_parser_current(parser)->kind)) {
+            return;
+        }
+
+        cn_parser_advance(parser);
+    }
+}
+
+static void cn_parser_sync_top_level(cn_parser *parser) {
+    while (!cn_parser_is_at_end(parser)) {
+        if (cn_parser_match(parser, CN_TOKEN_SEMICOLON)) {
+            return;
+        }
+
+        if (cn_parser_is_top_level_start(cn_parser_current(parser)->kind)) {
+            return;
+        }
+
+        cn_parser_advance(parser);
+    }
+}
+
 static cn_type_ref *cn_parse_type(cn_parser *parser);
 static cn_block *cn_parse_block(cn_parser *parser);
 static cn_stmt *cn_parse_statement(cn_parser *parser);
@@ -713,7 +764,7 @@ static cn_block *cn_parse_block(cn_parser *parser) {
     while (!cn_parser_check(parser, CN_TOKEN_RBRACE) && !cn_parser_is_at_end(parser)) {
         cn_stmt *statement = cn_parse_statement(parser);
         if (statement == NULL) {
-            cn_parser_advance(parser);
+            cn_parser_sync_statement(parser);
             continue;
         }
         cn_stmt_list_push(parser->allocator, &block->statements, statement);
@@ -723,10 +774,10 @@ static cn_block *cn_parse_block(cn_parser *parser) {
     return block;
 }
 
-static void cn_parse_import_decl(cn_parser *parser, cn_program *program, const cn_token *import_token) {
+static bool cn_parse_import_decl(cn_parser *parser, cn_program *program, const cn_token *import_token) {
     const cn_token *module_name = cn_parser_consume(parser, CN_TOKEN_IDENTIFIER, "expected module name after 'import'");
     if (module_name == NULL) {
-        return;
+        return false;
     }
 
     cn_import_decl import_decl;
@@ -745,12 +796,48 @@ static void cn_parse_import_decl(cn_parser *parser, cn_program *program, const c
 
     cn_parser_require_semicolon(parser, "expected ';' after import declaration");
     cn_program_push_import(program, import_decl);
+    return true;
+}
+
+static cn_const_decl *cn_parse_const_decl(cn_parser *parser, bool is_public, const cn_token *const_token) {
+    const cn_token *name = cn_parser_consume(parser, CN_TOKEN_IDENTIFIER, "expected constant name");
+    if (name == NULL) {
+        return NULL;
+    }
+
+    if (cn_parser_consume(parser, CN_TOKEN_COLON, "expected ':' after constant name") == NULL) {
+        return NULL;
+    }
+
+    cn_type_ref *type = cn_parse_type(parser);
+    if (type == NULL) {
+        return NULL;
+    }
+
+    if (cn_parser_consume(parser, CN_TOKEN_EQUAL, "expected '=' after constant type") == NULL) {
+        return NULL;
+    }
+
+    cn_expr *initializer = cn_parse_expression(parser);
+    cn_parser_require_semicolon(parser, "expected ';' after constant declaration");
+    if (initializer == NULL) {
+        return NULL;
+    }
+
+    cn_const_decl *const_decl = cn_const_decl_create(parser->allocator, const_token->offset);
+    const_decl->is_public = is_public;
+    const_decl->name = name->lexeme;
+    const_decl->type = type;
+    const_decl->initializer = initializer;
+    return const_decl;
 }
 
 static cn_struct_decl *cn_parse_struct_decl(cn_parser *parser, bool is_public, const cn_token *struct_token) {
     const cn_token *name = cn_parser_consume(parser, CN_TOKEN_IDENTIFIER, "expected struct name");
-    cn_parser_consume(parser, CN_TOKEN_LBRACE, "expected '{' after struct name");
     if (name == NULL) {
+        return NULL;
+    }
+    if (cn_parser_consume(parser, CN_TOKEN_LBRACE, "expected '{' after struct name") == NULL) {
         return NULL;
     }
 
@@ -777,10 +864,20 @@ static cn_struct_decl *cn_parse_struct_decl(cn_parser *parser, bool is_public, c
 }
 
 static cn_function *cn_parse_function(cn_parser *parser, bool is_public, const cn_token *start_token) {
-    cn_parser_consume(parser, CN_TOKEN_COLON, "expected ':' after function visibility keyword");
+    if (cn_parser_consume(parser, CN_TOKEN_COLON, "expected ':' after function visibility keyword") == NULL) {
+        return NULL;
+    }
     cn_type_ref *return_type = cn_parse_type(parser);
+    if (return_type == NULL) {
+        return NULL;
+    }
     const cn_token *name = cn_parser_consume(parser, CN_TOKEN_IDENTIFIER, "expected function name");
-    cn_parser_consume(parser, CN_TOKEN_LPAREN, "expected '(' after function name");
+    if (name == NULL) {
+        return NULL;
+    }
+    if (cn_parser_consume(parser, CN_TOKEN_LPAREN, "expected '(' after function name") == NULL) {
+        return NULL;
+    }
 
     cn_function *function = cn_function_create(parser->allocator, start_token->offset);
     function->is_public = is_public;
@@ -801,9 +898,14 @@ static cn_function *cn_parse_function(cn_parser *parser, bool is_public, const c
         } while (cn_parser_match(parser, CN_TOKEN_COMMA));
     }
 
-    cn_parser_consume(parser, CN_TOKEN_RPAREN, "expected ')' after parameters");
-    function->name = name != NULL ? name->lexeme : cn_sv_from_parts(NULL, 0);
+    if (cn_parser_consume(parser, CN_TOKEN_RPAREN, "expected ')' after parameters") == NULL) {
+        return NULL;
+    }
+    function->name = name->lexeme;
     function->body = cn_parse_block(parser);
+    if (function->body == NULL) {
+        return NULL;
+    }
     return function;
 }
 
@@ -812,7 +914,29 @@ cn_program *cn_parse_program(cn_parser *parser) {
 
     while (!cn_parser_is_at_end(parser)) {
         if (cn_parser_match(parser, CN_TOKEN_IMPORT)) {
-            cn_parse_import_decl(parser, program, cn_parser_previous(parser));
+            if (!cn_parse_import_decl(parser, program, cn_parser_previous(parser))) {
+                cn_parser_sync_top_level(parser);
+            }
+            continue;
+        }
+
+        if (cn_parser_match(parser, CN_TOKEN_CONST)) {
+            cn_const_decl *const_decl = cn_parse_const_decl(parser, false, cn_parser_previous(parser));
+            if (const_decl != NULL) {
+                cn_program_push_const(program, const_decl);
+            } else {
+                cn_parser_sync_top_level(parser);
+            }
+            continue;
+        }
+
+        if (cn_parser_match(parser, CN_TOKEN_PCONST)) {
+            cn_const_decl *const_decl = cn_parse_const_decl(parser, true, cn_parser_previous(parser));
+            if (const_decl != NULL) {
+                cn_program_push_const(program, const_decl);
+            } else {
+                cn_parser_sync_top_level(parser);
+            }
             continue;
         }
 
@@ -820,6 +944,8 @@ cn_program *cn_parse_program(cn_parser *parser) {
             cn_struct_decl *struct_decl = cn_parse_struct_decl(parser, false, cn_parser_previous(parser));
             if (struct_decl != NULL) {
                 cn_program_push_struct(program, struct_decl);
+            } else {
+                cn_parser_sync_top_level(parser);
             }
             continue;
         }
@@ -828,6 +954,8 @@ cn_program *cn_parse_program(cn_parser *parser) {
             cn_struct_decl *struct_decl = cn_parse_struct_decl(parser, true, cn_parser_previous(parser));
             if (struct_decl != NULL) {
                 cn_program_push_struct(program, struct_decl);
+            } else {
+                cn_parser_sync_top_level(parser);
             }
             continue;
         }
@@ -836,6 +964,8 @@ cn_program *cn_parse_program(cn_parser *parser) {
             cn_function *function = cn_parse_function(parser, false, cn_parser_previous(parser));
             if (function != NULL) {
                 cn_program_push_function(program, function);
+            } else {
+                cn_parser_sync_top_level(parser);
             }
             continue;
         }
@@ -844,6 +974,8 @@ cn_program *cn_parse_program(cn_parser *parser) {
             cn_function *function = cn_parse_function(parser, true, cn_parser_previous(parser));
             if (function != NULL) {
                 cn_program_push_function(program, function);
+            } else {
+                cn_parser_sync_top_level(parser);
             }
             continue;
         }
@@ -856,7 +988,7 @@ cn_program *cn_parse_program(cn_parser *parser) {
             "unexpected top-level token '%s'",
             cn_token_kind_name(cn_parser_current(parser)->kind)
         );
-        cn_parser_advance(parser);
+        cn_parser_sync_top_level(parser);
     }
 
     return program;

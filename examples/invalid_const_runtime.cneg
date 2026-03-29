@@ -1,0 +1,5 @@
+const BAD:str = str_copy("oops");
+
+fn:int main() {
+    return 0;
+}

@@ -28,6 +28,7 @@ typedef struct cn_type_ref {
 typedef struct cn_expr cn_expr;
 typedef struct cn_stmt cn_stmt;
 typedef struct cn_block cn_block;
+typedef struct cn_const_decl cn_const_decl;
 
 typedef struct cn_field_init {
     cn_strview name;
@@ -253,11 +254,24 @@ typedef struct cn_function {
     size_t offset;
 } cn_function;
 
+struct cn_const_decl {
+    bool is_public;
+    cn_strview name;
+    cn_type_ref *type;
+    cn_expr *initializer;
+    bool sema_checked;
+    bool sema_checking;
+    size_t offset;
+};
+
 typedef struct cn_program {
     cn_allocator *allocator;
     cn_import_decl *imports;
     size_t import_count;
     size_t import_capacity;
+    cn_const_decl **consts;
+    size_t const_count;
+    size_t const_capacity;
     cn_struct_decl **structs;
     size_t struct_count;
     size_t struct_capacity;
@@ -273,9 +287,11 @@ cn_expr *cn_expr_create(cn_allocator *allocator, cn_expr_kind kind, size_t offse
 cn_stmt *cn_stmt_create(cn_allocator *allocator, cn_stmt_kind kind, size_t offset);
 cn_block *cn_block_create(cn_allocator *allocator, size_t offset);
 cn_function *cn_function_create(cn_allocator *allocator, size_t offset);
+cn_const_decl *cn_const_decl_create(cn_allocator *allocator, size_t offset);
 cn_struct_decl *cn_struct_decl_create(cn_allocator *allocator, size_t offset);
 
 bool cn_program_push_import(cn_program *program, cn_import_decl import_decl);
+bool cn_program_push_const(cn_program *program, cn_const_decl *const_decl);
 bool cn_program_push_struct(cn_program *program, cn_struct_decl *struct_decl);
 bool cn_program_push_function(cn_program *program, cn_function *function);
 bool cn_param_list_push(cn_allocator *allocator, cn_param_list *list, cn_param param);

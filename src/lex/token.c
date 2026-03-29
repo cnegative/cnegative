@@ -10,6 +10,8 @@ const char *cn_token_kind_name(cn_token_kind kind) {
     case CN_TOKEN_FALSE: return "false";
     case CN_TOKEN_FN: return "fn";
     case CN_TOKEN_PFN: return "pfn";
+    case CN_TOKEN_CONST: return "const";
+    case CN_TOKEN_PCONST: return "pconst";
     case CN_TOKEN_LET: return "let";
     case CN_TOKEN_MUT: return "mut";
     case CN_TOKEN_RETURN: return "return";

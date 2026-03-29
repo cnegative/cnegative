@@ -1,0 +1,4 @@
+pconst BASE:int = 5;
+pconst SHIFT:int = BASE + 7;
+pconst FLAG:bool = SHIFT > BASE;
+pconst GREETING:str = "hello";

@@ -13,6 +13,8 @@ typedef enum cn_token_kind {
     CN_TOKEN_FALSE,
     CN_TOKEN_FN,
     CN_TOKEN_PFN,
+    CN_TOKEN_CONST,
+    CN_TOKEN_PCONST,
     CN_TOKEN_LET,
     CN_TOKEN_MUT,
     CN_TOKEN_RETURN,

@@ -6,6 +6,7 @@ static void cn_ir_expr_destroy(cn_allocator *allocator, cn_ir_expr *expression);
 static void cn_ir_stmt_destroy(cn_allocator *allocator, cn_ir_stmt *statement);
 static void cn_ir_block_destroy(cn_allocator *allocator, cn_ir_block *block);
 static void cn_ir_function_destroy(cn_allocator *allocator, cn_ir_function *function);
+static void cn_ir_const_destroy(cn_allocator *allocator, cn_ir_const *const_decl);
 static void cn_ir_struct_destroy(cn_allocator *allocator, cn_ir_struct *struct_decl);
 
 static void *cn_ir_grow_items(cn_allocator *allocator, void *items, size_t item_size, size_t *capacity, size_t required) {
@@ -166,6 +167,9 @@ cn_ir_module *cn_ir_module_create(cn_allocator *allocator, cn_strview name, cn_s
     module->name = name;
     module->path = path;
     module->source = source;
+    module->consts.items = NULL;
+    module->consts.count = 0;
+    module->consts.capacity = 0;
     module->structs.items = NULL;
     module->structs.count = 0;
     module->structs.capacity = 0;
@@ -173,6 +177,17 @@ cn_ir_module *cn_ir_module_create(cn_allocator *allocator, cn_strview name, cn_s
     module->functions.count = 0;
     module->functions.capacity = 0;
     return module;
+}
+
+cn_ir_const *cn_ir_const_create(cn_allocator *allocator, cn_strview module_name, cn_strview name, bool is_public, size_t offset) {
+    cn_ir_const *const_decl = CN_ALLOC(allocator, cn_ir_const);
+    const_decl->is_public = is_public;
+    const_decl->module_name = module_name;
+    const_decl->name = name;
+    const_decl->type = NULL;
+    const_decl->initializer = NULL;
+    const_decl->offset = offset;
+    return const_decl;
 }
 
 cn_ir_struct *cn_ir_struct_create(cn_allocator *allocator, cn_strview module_name, cn_strview name, bool is_public, size_t offset) {
@@ -234,6 +249,18 @@ bool cn_ir_program_push_module(cn_ir_program *program, cn_ir_module *module) {
         program->modules.count + 1
     );
     program->modules.items[program->modules.count++] = module;
+    return true;
+}
+
+bool cn_ir_module_push_const(cn_ir_module *module, cn_allocator *allocator, cn_ir_const *const_decl) {
+    module->consts.items = (cn_ir_const **)cn_ir_grow_items(
+        allocator,
+        module->consts.items,
+        sizeof(cn_ir_const *),
+        &module->consts.capacity,
+        module->consts.count + 1
+    );
+    module->consts.items[module->consts.count++] = const_decl;
     return true;
 }
 
@@ -457,6 +484,16 @@ static void cn_ir_function_destroy(cn_allocator *allocator, cn_ir_function *func
     CN_FREE(allocator, function);
 }
 
+static void cn_ir_const_destroy(cn_allocator *allocator, cn_ir_const *const_decl) {
+    if (const_decl == NULL) {
+        return;
+    }
+
+    cn_ir_type_destroy(allocator, const_decl->type);
+    cn_ir_expr_destroy(allocator, const_decl->initializer);
+    CN_FREE(allocator, const_decl);
+}
+
 static void cn_ir_struct_destroy(cn_allocator *allocator, cn_ir_struct *struct_decl) {
     if (struct_decl == NULL) {
         return;
@@ -478,6 +515,9 @@ void cn_ir_program_destroy(cn_allocator *allocator, cn_ir_program *program) {
     for (size_t i = 0; i < program->modules.count; ++i) {
         cn_ir_module *module = program->modules.items[i];
 
+        for (size_t const_index = 0; const_index < module->consts.count; ++const_index) {
+            cn_ir_const_destroy(allocator, module->consts.items[const_index]);
+        }
         for (size_t struct_index = 0; struct_index < module->structs.count; ++struct_index) {
             cn_ir_struct_destroy(allocator, module->structs.items[struct_index]);
         }
@@ -485,6 +525,7 @@ void cn_ir_program_destroy(cn_allocator *allocator, cn_ir_program *program) {
             cn_ir_function_destroy(allocator, module->functions.items[function_index]);
         }
 
+        CN_FREE(allocator, module->consts.items);
         CN_FREE(allocator, module->structs.items);
         CN_FREE(allocator, module->functions.items);
         CN_FREE(allocator, module);
@@ -770,6 +811,25 @@ static void cn_ir_dump_struct(FILE *stream, const cn_ir_struct *struct_decl, siz
     fputs("}\n", stream);
 }
 
+static void cn_ir_dump_const(FILE *stream, const cn_ir_const *const_decl, size_t depth) {
+    char type_name[128];
+    cn_ir_type_describe(const_decl->type, type_name, sizeof(type_name));
+
+    cn_ir_dump_indent(stream, depth);
+    fprintf(
+        stream,
+        "%s %.*s.%.*s:%s = ",
+        const_decl->is_public ? "pconst" : "const",
+        (int)const_decl->module_name.length,
+        const_decl->module_name.data,
+        (int)const_decl->name.length,
+        const_decl->name.data,
+        type_name
+    );
+    cn_ir_dump_expr(stream, const_decl->initializer);
+    fputs(";\n", stream);
+}
+
 static void cn_ir_dump_function(FILE *stream, const cn_ir_function *function, size_t depth) {
     char return_type[128];
     cn_ir_type_describe(function->return_type, return_type, sizeof(return_type));
@@ -817,6 +877,17 @@ void cn_ir_program_dump(const cn_ir_program *program, FILE *stream) {
             (int)module->path.length,
             module->path.data
         );
+
+        for (size_t i = 0; i < module->consts.count; ++i) {
+            if (i > 0) {
+                fputc('\n', stream);
+            }
+            cn_ir_dump_const(stream, module->consts.items[i], 1);
+        }
+
+        if (module->consts.count > 0 && (module->structs.count > 0 || module->functions.count > 0)) {
+            fputc('\n', stream);
+        }
 
         for (size_t i = 0; i < module->structs.count; ++i) {
             if (i > 0) {

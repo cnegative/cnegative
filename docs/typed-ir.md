@@ -5,26 +5,41 @@
 ## Current Properties
 
 - Independent IR node types separate from the parser AST.
+- Module-level constant declarations lowered into canonical IR form.
 - Canonical module-qualified function and struct names in lowered output.
+- Canonical module-qualified public constants in lowered output.
 - Explicit return statements preserved from source.
 - Structured control flow preserved for `if`, `while`, `loop`, and range `for`.
+- Simple optimization passes run before later backend stages.
 - No SSA, basic blocks, or LLVM-specific details yet.
 
 ## CLI
 
 ```sh
-build/cnegc ir examples/valid_imported_structs.cneg
+build/cnegc ir examples/valid_consts_strings.cneg
 ```
 
 ## Example Shape
 
 ```text
-module valid_imported_structs (...) {
-    fn valid_imported_structs.main() -> int {
-        let p:shapes.Point = shapes.make_point(3, 4);
-        return w.point.y;
+module valid_consts_strings (...) {
+    const valid_consts_strings.LOCAL:int = 20;
+
+    fn valid_consts_strings.main() -> int {
+        let joined:str = str_concat("hello", " world");
+        if true {
+            print(joined);
+        }
+        return 20;
     }
 }
 ```
 
-This stage is meant to stabilize typing and symbol resolution before control-flow lowering and LLVM emission.
+Current optimization pass behavior:
+
+- folds constant integer and boolean expressions
+- folds string literal equality and inequality
+- trims unreachable statements after `return`
+- optimizes module constant initializers before backend lowering
+
+This stage is meant to stabilize typing, symbol resolution, and simple canonical simplification before LLVM emission.

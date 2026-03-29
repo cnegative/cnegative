@@ -54,6 +54,8 @@ static void cn_lexer_emit(cn_lexer *lexer, cn_token_buffer *tokens, cn_token_kin
 static cn_token_kind cn_keyword_kind(cn_strview text) {
     if (cn_sv_eq_cstr(text, "fn")) return CN_TOKEN_FN;
     if (cn_sv_eq_cstr(text, "pfn")) return CN_TOKEN_PFN;
+    if (cn_sv_eq_cstr(text, "const")) return CN_TOKEN_CONST;
+    if (cn_sv_eq_cstr(text, "pconst")) return CN_TOKEN_PCONST;
     if (cn_sv_eq_cstr(text, "let")) return CN_TOKEN_LET;
     if (cn_sv_eq_cstr(text, "mut")) return CN_TOKEN_MUT;
     if (cn_sv_eq_cstr(text, "return")) return CN_TOKEN_RETURN;

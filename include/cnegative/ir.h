@@ -75,6 +75,7 @@ typedef enum cn_ir_expr_kind {
 typedef struct cn_ir_expr cn_ir_expr;
 typedef struct cn_ir_stmt cn_ir_stmt;
 typedef struct cn_ir_block cn_ir_block;
+typedef struct cn_ir_const cn_ir_const;
 typedef struct cn_ir_struct cn_ir_struct;
 typedef struct cn_ir_function cn_ir_function;
 typedef struct cn_ir_module cn_ir_module;
@@ -243,6 +244,15 @@ typedef struct cn_ir_struct_field_list {
     size_t capacity;
 } cn_ir_struct_field_list;
 
+struct cn_ir_const {
+    bool is_public;
+    cn_strview module_name;
+    cn_strview name;
+    cn_ir_type *type;
+    cn_ir_expr *initializer;
+    size_t offset;
+};
+
 struct cn_ir_struct {
     bool is_public;
     cn_strview module_name;
@@ -267,6 +277,12 @@ typedef struct cn_ir_struct_ptr_list {
     size_t capacity;
 } cn_ir_struct_ptr_list;
 
+typedef struct cn_ir_const_ptr_list {
+    cn_ir_const **items;
+    size_t count;
+    size_t capacity;
+} cn_ir_const_ptr_list;
+
 typedef struct cn_ir_function_ptr_list {
     cn_ir_function **items;
     size_t count;
@@ -277,6 +293,7 @@ struct cn_ir_module {
     cn_strview name;
     cn_strview path;
     const cn_source *source;
+    cn_ir_const_ptr_list consts;
     cn_ir_struct_ptr_list structs;
     cn_ir_function_ptr_list functions;
 };
@@ -307,6 +324,7 @@ void cn_ir_type_describe(const cn_ir_type *type, char *buffer, size_t buffer_siz
 
 cn_ir_program *cn_ir_program_create(cn_allocator *allocator);
 cn_ir_module *cn_ir_module_create(cn_allocator *allocator, cn_strview name, cn_strview path, const cn_source *source);
+cn_ir_const *cn_ir_const_create(cn_allocator *allocator, cn_strview module_name, cn_strview name, bool is_public, size_t offset);
 cn_ir_struct *cn_ir_struct_create(cn_allocator *allocator, cn_strview module_name, cn_strview name, bool is_public, size_t offset);
 cn_ir_function *cn_ir_function_create(cn_allocator *allocator, cn_strview module_name, cn_strview name, bool is_public, size_t offset);
 cn_ir_block *cn_ir_block_create(cn_allocator *allocator, size_t offset);
@@ -314,6 +332,7 @@ cn_ir_stmt *cn_ir_stmt_create(cn_allocator *allocator, cn_ir_stmt_kind kind, siz
 cn_ir_expr *cn_ir_expr_create(cn_allocator *allocator, cn_ir_expr_kind kind, size_t offset);
 
 bool cn_ir_program_push_module(cn_ir_program *program, cn_ir_module *module);
+bool cn_ir_module_push_const(cn_ir_module *module, cn_allocator *allocator, cn_ir_const *const_decl);
 bool cn_ir_module_push_struct(cn_ir_module *module, cn_allocator *allocator, cn_ir_struct *struct_decl);
 bool cn_ir_module_push_function(cn_ir_module *module, cn_allocator *allocator, cn_ir_function *function);
 bool cn_ir_param_list_push(cn_allocator *allocator, cn_ir_param_list *list, cn_ir_param param);
@@ -326,5 +345,6 @@ void cn_ir_program_destroy(cn_allocator *allocator, cn_ir_program *program);
 void cn_ir_program_dump(const cn_ir_program *program, FILE *stream);
 
 bool cn_ir_lower_project(cn_allocator *allocator, const cn_project *project, cn_diag_bag *diagnostics, cn_ir_program **out_program);
+void cn_ir_optimize_program(cn_allocator *allocator, cn_ir_program *program);
 
 #endif

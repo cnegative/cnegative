@@ -30,6 +30,11 @@ typedef struct cn_resolved_struct {
     const cn_struct_decl *decl;
 } cn_resolved_struct;
 
+typedef struct cn_resolved_const {
+    const cn_module *module;
+    const cn_const_decl *decl;
+} cn_resolved_const;
+
 typedef struct cn_sema_ctx {
     const cn_project *project;
     const cn_module *module;
@@ -83,6 +88,24 @@ static const cn_function *cn_find_public_function(const cn_module *module, cn_st
     return NULL;
 }
 
+static const cn_const_decl *cn_find_const(const cn_module *module, cn_strview name) {
+    for (size_t i = 0; i < module->program->const_count; ++i) {
+        if (cn_name_eq(module->program->consts[i]->name, name)) {
+            return module->program->consts[i];
+        }
+    }
+    return NULL;
+}
+
+static const cn_const_decl *cn_find_public_const(const cn_module *module, cn_strview name) {
+    for (size_t i = 0; i < module->program->const_count; ++i) {
+        if (module->program->consts[i]->is_public && cn_name_eq(module->program->consts[i]->name, name)) {
+            return module->program->consts[i];
+        }
+    }
+    return NULL;
+}
+
 static const cn_struct_decl *cn_find_struct(const cn_module *module, cn_strview name) {
     for (size_t i = 0; i < module->program->struct_count; ++i) {
         if (cn_name_eq(module->program->structs[i]->name, name)) {
@@ -122,6 +145,42 @@ static const cn_module *cn_resolve_canonical_named_module(cn_sema_ctx *ctx, cn_s
     }
 
     return cn_find_imported_module(ctx->module, module_name);
+}
+
+static cn_resolved_const cn_resolve_const_in_module(const cn_module *module, cn_strview const_name) {
+    cn_resolved_const result;
+    result.module = NULL;
+    result.decl = NULL;
+
+    if (module == NULL || module->program == NULL) {
+        return result;
+    }
+
+    result.module = module;
+    result.decl = cn_find_const(module, const_name);
+    if (result.decl == NULL) {
+        result.module = NULL;
+    }
+    return result;
+}
+
+static cn_resolved_const cn_resolve_source_named_const(cn_sema_ctx *ctx, cn_strview module_name, cn_strview const_name) {
+    const cn_module *module = cn_resolve_source_named_module(ctx, module_name);
+    if (module == NULL) {
+        return cn_resolve_const_in_module(NULL, const_name);
+    }
+
+    if (module == ctx->module) {
+        return cn_resolve_const_in_module(module, const_name);
+    }
+
+    cn_resolved_const result;
+    result.module = module;
+    result.decl = cn_find_public_const(module, const_name);
+    if (result.decl == NULL) {
+        result.module = NULL;
+    }
+    return result;
 }
 
 static cn_resolved_struct cn_resolve_struct_in_module(const cn_module *module, cn_strview type_name) {
@@ -419,6 +478,26 @@ static void cn_emit_private_type_in_public_api(
     );
 }
 
+static void cn_emit_top_level_name_conflict(
+    cn_sema_ctx *ctx,
+    size_t offset,
+    const char *name_kind,
+    cn_strview name,
+    const char *other_kind
+) {
+    cn_diag_emit(
+        ctx->diagnostics,
+        CN_DIAG_ERROR,
+        "E3027",
+        offset,
+        "%s name '%.*s' conflicts with existing %s",
+        name_kind,
+        (int)name.length,
+        name.data,
+        other_kind
+    );
+}
+
 static bool cn_extract_result_ok_guard(const cn_expr *expression, cn_strview *out_name, bool *out_positive) {
     const cn_expr *guard = expression;
     bool is_positive = true;
@@ -439,6 +518,92 @@ static bool cn_extract_result_ok_guard(const cn_expr *expression, cn_strview *ou
     *out_name = guard->data.field.base->data.name;
     *out_positive = is_positive;
     return true;
+}
+
+static bool cn_check_const_decl(cn_sema_ctx *ctx, const cn_module *module, const cn_const_decl *const_decl);
+
+static bool cn_check_const_expr(cn_sema_ctx *ctx, const cn_expr *expression) {
+    switch (expression->kind) {
+    case CN_EXPR_INT:
+    case CN_EXPR_BOOL:
+    case CN_EXPR_STRING:
+    case CN_EXPR_ERR:
+        return true;
+    case CN_EXPR_NAME: {
+        cn_resolved_const resolved = cn_resolve_const_in_module(ctx->module, expression->data.name);
+        if (resolved.decl == NULL) {
+            cn_diag_emit(
+                ctx->diagnostics,
+                CN_DIAG_ERROR,
+                "E3025",
+                expression->offset,
+                "module-level constant initializers can only use other constants, got '%.*s'",
+                (int)expression->data.name.length,
+                expression->data.name.data
+            );
+            return false;
+        }
+        return cn_check_const_decl(ctx, resolved.module, resolved.decl);
+    }
+    case CN_EXPR_UNARY:
+        return cn_check_const_expr(ctx, expression->data.unary.operand);
+    case CN_EXPR_BINARY:
+        return cn_check_const_expr(ctx, expression->data.binary.left) &&
+               cn_check_const_expr(ctx, expression->data.binary.right);
+    case CN_EXPR_ARRAY_LITERAL:
+        for (size_t i = 0; i < expression->data.array_literal.items.count; ++i) {
+            if (!cn_check_const_expr(ctx, expression->data.array_literal.items.items[i])) {
+                return false;
+            }
+        }
+        return true;
+    case CN_EXPR_INDEX:
+        return cn_check_const_expr(ctx, expression->data.index.base) &&
+               cn_check_const_expr(ctx, expression->data.index.index);
+    case CN_EXPR_FIELD:
+        if (expression->data.field.base->kind == CN_EXPR_NAME) {
+            cn_resolved_const resolved = cn_resolve_source_named_const(
+                ctx,
+                expression->data.field.base->data.name,
+                expression->data.field.field_name
+            );
+            if (resolved.decl != NULL) {
+                return cn_check_const_decl(ctx, resolved.module, resolved.decl);
+            }
+        }
+        return cn_check_const_expr(ctx, expression->data.field.base);
+    case CN_EXPR_STRUCT_LITERAL:
+        for (size_t i = 0; i < expression->data.struct_literal.fields.count; ++i) {
+            if (!cn_check_const_expr(ctx, expression->data.struct_literal.fields.items[i].value)) {
+                return false;
+            }
+        }
+        return true;
+    case CN_EXPR_OK:
+        return cn_check_const_expr(ctx, expression->data.ok_expr.value);
+    case CN_EXPR_CALL:
+        cn_diag_emit(
+            ctx->diagnostics,
+            CN_DIAG_ERROR,
+            "E3025",
+            expression->offset,
+            "module-level constant initializers cannot call functions or builtins"
+        );
+        return false;
+    case CN_EXPR_ALLOC:
+    case CN_EXPR_ADDR:
+    case CN_EXPR_DEREF:
+        cn_diag_emit(
+            ctx->diagnostics,
+            CN_DIAG_ERROR,
+            "E3025",
+            expression->offset,
+            "module-level constant initializers cannot use runtime memory operations"
+        );
+        return false;
+    }
+
+    return false;
 }
 
 static const cn_type_ref *cn_check_expression_hint(cn_sema_ctx *ctx, cn_scope *scope, const cn_expr *expression, const cn_type_ref *expected);
@@ -596,14 +761,22 @@ static const cn_type_ref *cn_check_struct_literal(cn_sema_ctx *ctx, cn_scope *sc
 
 static const cn_type_ref *cn_check_field_access(cn_sema_ctx *ctx, cn_scope *scope, const cn_expr *expression) {
     if (expression->data.field.base->kind == CN_EXPR_NAME) {
-        const cn_module *imported = cn_find_imported_module(ctx->module, expression->data.field.base->data.name);
-        if (imported != NULL) {
+        cn_resolved_const resolved_const = cn_resolve_source_named_const(
+            ctx,
+            expression->data.field.base->data.name,
+            expression->data.field.field_name
+        );
+        if (resolved_const.decl != NULL) {
+            return resolved_const.decl->type;
+        }
+
+        if (cn_find_imported_module(ctx->module, expression->data.field.base->data.name) != NULL) {
             cn_diag_emit(
                 ctx->diagnostics,
                 CN_DIAG_ERROR,
                 "E3014",
                 expression->offset,
-                "module member access is only valid in a call like module.function(...)"
+                "module member access is only valid for exported constants or calls like module.function(...)"
             );
             return cn_builtin_type(CN_TYPE_UNKNOWN);
         }
@@ -750,8 +923,47 @@ static const cn_type_ref *cn_check_call(cn_sema_ctx *ctx, cn_scope *scope, const
             return cn_builtin_type(CN_TYPE_STR);
         }
 
+        if (cn_sv_eq_cstr(callee, "str_copy")) {
+            if (expression->data.call.arguments.count != 1) {
+                cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3008", expression->offset, "str_copy expects exactly 1 argument");
+            } else {
+                const cn_type_ref *value_type = cn_check_expression_hint(ctx, scope, expression->data.call.arguments.items[0], cn_builtin_type(CN_TYPE_STR));
+                if (!cn_type_equal(value_type, cn_builtin_type(CN_TYPE_STR))) {
+                    cn_emit_type_mismatch(ctx->diagnostics, expression->data.call.arguments.items[0]->offset, "str_copy requires str", cn_builtin_type(CN_TYPE_STR), value_type);
+                }
+            }
+            return cn_builtin_type(CN_TYPE_STR);
+        }
+
+        if (cn_sv_eq_cstr(callee, "str_concat")) {
+            if (expression->data.call.arguments.count != 2) {
+                cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3008", expression->offset, "str_concat expects exactly 2 arguments");
+            } else {
+                for (size_t i = 0; i < 2; ++i) {
+                    const cn_type_ref *value_type = cn_check_expression_hint(ctx, scope, expression->data.call.arguments.items[i], cn_builtin_type(CN_TYPE_STR));
+                    if (!cn_type_equal(value_type, cn_builtin_type(CN_TYPE_STR))) {
+                        cn_emit_type_mismatch(ctx->diagnostics, expression->data.call.arguments.items[i]->offset, "str_concat requires str", cn_builtin_type(CN_TYPE_STR), value_type);
+                    }
+                }
+            }
+            return cn_builtin_type(CN_TYPE_STR);
+        }
+
         if (cn_find_imported_module(ctx->module, callee) != NULL) {
             cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3014", expression->offset, "module names are not callable; use module.function(...)");
+            return cn_builtin_type(CN_TYPE_UNKNOWN);
+        }
+
+        if (cn_find_const(ctx->module, callee) != NULL) {
+            cn_diag_emit(
+                ctx->diagnostics,
+                CN_DIAG_ERROR,
+                "E3014",
+                expression->offset,
+                "constant '%.*s' is not callable",
+                (int)callee.length,
+                callee.data
+            );
             return cn_builtin_type(CN_TYPE_UNKNOWN);
         }
 
@@ -780,6 +992,20 @@ static const cn_type_ref *cn_check_call(cn_sema_ctx *ctx, cn_scope *scope, const
 
         if (imported == NULL) {
             cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3014", expression->offset, "call target must be a function name or imported module function");
+            return cn_builtin_type(CN_TYPE_UNKNOWN);
+        }
+
+        if (cn_find_public_const(imported, function_name) != NULL) {
+            cn_diag_emit(
+                ctx->diagnostics,
+                CN_DIAG_ERROR,
+                "E3014",
+                expression->offset,
+                "module '%s' exports constant '%.*s', not a function",
+                imported->name,
+                (int)function_name.length,
+                function_name.data
+            );
             return cn_builtin_type(CN_TYPE_UNKNOWN);
         }
 
@@ -838,23 +1064,29 @@ static const cn_type_ref *cn_check_expression_hint(cn_sema_ctx *ctx, cn_scope *s
         return cn_builtin_type(CN_TYPE_STR);
     case CN_EXPR_NAME: {
         const cn_binding *binding = cn_scope_lookup(scope, expression->data.name);
-        if (binding == NULL) {
-            if (cn_find_imported_module(ctx->module, expression->data.name) != NULL) {
-                cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3014", expression->offset, "module names are not values yet");
-            } else {
-                cn_diag_emit(
-                    ctx->diagnostics,
-                    CN_DIAG_ERROR,
-                    "E3002",
-                    expression->offset,
-                    "unknown name '%.*s'",
-                    (int)expression->data.name.length,
-                    expression->data.name.data
-                );
-            }
-            return cn_builtin_type(CN_TYPE_UNKNOWN);
+        if (binding != NULL) {
+            return binding->type;
         }
-        return binding->type;
+
+        const cn_const_decl *const_decl = cn_find_const(ctx->module, expression->data.name);
+        if (const_decl != NULL) {
+            return const_decl->type;
+        }
+
+        if (cn_find_imported_module(ctx->module, expression->data.name) != NULL) {
+            cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3014", expression->offset, "module names are not values yet");
+        } else {
+            cn_diag_emit(
+                ctx->diagnostics,
+                CN_DIAG_ERROR,
+                "E3002",
+                expression->offset,
+                "unknown name '%.*s'",
+                (int)expression->data.name.length,
+                expression->data.name.data
+            );
+        }
+        return cn_builtin_type(CN_TYPE_UNKNOWN);
     }
     case CN_EXPR_UNARY: {
         const cn_type_ref *operand_type = cn_check_expression_hint(ctx, scope, expression->data.unary.operand, NULL);
@@ -1020,6 +1252,21 @@ static cn_assignment_target cn_check_assignment_target(cn_sema_ctx *ctx, cn_scop
     if (target->kind == CN_EXPR_NAME) {
         const cn_binding *binding = cn_scope_lookup(scope, target->data.name);
         if (binding == NULL) {
+            const cn_const_decl *const_decl = cn_find_const(ctx->module, target->data.name);
+            if (const_decl != NULL) {
+                cn_diag_emit(
+                    ctx->diagnostics,
+                    CN_DIAG_ERROR,
+                    "E3006",
+                    target->offset,
+                    "cannot assign to module constant '%.*s'",
+                    (int)target->data.name.length,
+                    target->data.name.data
+                );
+                result.type = const_decl->type;
+                return result;
+            }
+
             cn_diag_emit(
                 ctx->diagnostics,
                 CN_DIAG_ERROR,
@@ -1039,6 +1286,29 @@ static cn_assignment_target cn_check_assignment_target(cn_sema_ctx *ctx, cn_scop
     }
 
     if (target->kind == CN_EXPR_FIELD || target->kind == CN_EXPR_INDEX || target->kind == CN_EXPR_DEREF) {
+        if (target->kind == CN_EXPR_FIELD && target->data.field.base->kind == CN_EXPR_NAME) {
+            cn_resolved_const resolved_const = cn_resolve_source_named_const(
+                ctx,
+                target->data.field.base->data.name,
+                target->data.field.field_name
+            );
+            if (resolved_const.decl != NULL) {
+                cn_diag_emit(
+                    ctx->diagnostics,
+                    CN_DIAG_ERROR,
+                    "E3006",
+                    target->offset,
+                    "cannot assign to module constant '%.*s.%.*s'",
+                    (int)target->data.field.base->data.name.length,
+                    target->data.field.base->data.name.data,
+                    (int)target->data.field.field_name.length,
+                    target->data.field.field_name.data
+                );
+                result.type = resolved_const.decl->type;
+                return result;
+            }
+        }
+
         result.type = cn_check_expression_hint(ctx, scope, target, NULL);
         return result;
     }
@@ -1243,6 +1513,50 @@ static bool cn_check_struct_decl(cn_sema_ctx *ctx, const cn_struct_decl *struct_
     return !cn_diag_has_error(ctx->diagnostics);
 }
 
+static bool cn_check_const_decl(cn_sema_ctx *ctx, const cn_module *module, const cn_const_decl *const_decl) {
+    const cn_module *previous_module = ctx->module;
+    bool type_valid = false;
+
+    if (const_decl->sema_checked) {
+        return true;
+    }
+
+    if (const_decl->sema_checking) {
+        cn_diag_emit(
+            ctx->diagnostics,
+            CN_DIAG_ERROR,
+            "E3026",
+            const_decl->offset,
+            "cyclic constant definition involving '%.*s.%.*s'",
+            (int)cn_sv_from_cstr(module->name).length,
+            module->name,
+            (int)const_decl->name.length,
+            const_decl->name.data
+        );
+        return false;
+    }
+
+    ctx->module = module;
+    ((cn_const_decl *)const_decl)->sema_checking = true;
+
+    type_valid = cn_validate_type_ref(ctx, const_decl->type, const_decl->offset);
+    if (const_decl->is_public && type_valid && !cn_type_is_exportable(ctx, const_decl->type)) {
+        cn_emit_private_type_in_public_api(ctx, const_decl->offset, "constant", const_decl->name, const_decl->type);
+    }
+
+    cn_check_const_expr(ctx, const_decl->initializer);
+
+    const cn_type_ref *initializer_type = cn_check_expression_hint(ctx, NULL, const_decl->initializer, const_decl->type);
+    if (!cn_type_equal(const_decl->type, initializer_type)) {
+        cn_emit_type_mismatch(ctx->diagnostics, const_decl->offset, "constant initializer type mismatch", const_decl->type, initializer_type);
+    }
+
+    ((cn_const_decl *)const_decl)->sema_checking = false;
+    ((cn_const_decl *)const_decl)->sema_checked = true;
+    ctx->module = previous_module;
+    return !cn_diag_has_error(ctx->diagnostics);
+}
+
 static bool cn_check_module_header(cn_sema_ctx *ctx) {
     for (size_t i = 0; i < ctx->module->program->import_count; ++i) {
         if (ctx->module->imports[i] == NULL) {
@@ -1259,6 +1573,46 @@ static bool cn_check_module_header(cn_sema_ctx *ctx) {
                     "duplicate import alias '%.*s'",
                     (int)ctx->module->program->imports[j].alias.length,
                     ctx->module->program->imports[j].alias.data
+                );
+            }
+        }
+
+        for (size_t j = 0; j < ctx->module->program->const_count; ++j) {
+            if (cn_name_eq(ctx->module->program->imports[i].alias, ctx->module->program->consts[j]->name)) {
+                cn_emit_top_level_name_conflict(
+                    ctx,
+                    ctx->module->program->consts[j]->offset,
+                    "constant",
+                    ctx->module->program->consts[j]->name,
+                    "import alias"
+                );
+            }
+        }
+
+        for (size_t j = 0; j < ctx->module->program->function_count; ++j) {
+            if (cn_name_eq(ctx->module->program->imports[i].alias, ctx->module->program->functions[j]->name)) {
+                cn_emit_top_level_name_conflict(
+                    ctx,
+                    ctx->module->program->functions[j]->offset,
+                    "function",
+                    ctx->module->program->functions[j]->name,
+                    "import alias"
+                );
+            }
+        }
+    }
+
+    for (size_t i = 0; i < ctx->module->program->const_count; ++i) {
+        for (size_t j = i + 1; j < ctx->module->program->const_count; ++j) {
+            if (cn_name_eq(ctx->module->program->consts[i]->name, ctx->module->program->consts[j]->name)) {
+                cn_diag_emit(
+                    ctx->diagnostics,
+                    CN_DIAG_ERROR,
+                    "E3027",
+                    ctx->module->program->consts[j]->offset,
+                    "duplicate constant '%.*s'",
+                    (int)ctx->module->program->consts[j]->name.length,
+                    ctx->module->program->consts[j]->name.data
                 );
             }
         }
@@ -1291,6 +1645,18 @@ static bool cn_check_module_header(cn_sema_ctx *ctx) {
                     "duplicate function '%.*s'",
                     (int)ctx->module->program->functions[j]->name.length,
                     ctx->module->program->functions[j]->name.data
+                );
+            }
+        }
+
+        for (size_t j = 0; j < ctx->module->program->const_count; ++j) {
+            if (cn_name_eq(ctx->module->program->functions[i]->name, ctx->module->program->consts[j]->name)) {
+                cn_emit_top_level_name_conflict(
+                    ctx,
+                    ctx->module->program->consts[j]->offset,
+                    "constant",
+                    ctx->module->program->consts[j]->name,
+                    "function"
                 );
             }
         }
@@ -1373,6 +1739,19 @@ bool cn_sema_check_project(cn_project *project, cn_diag_bag *diagnostics) {
 
         for (size_t i = 0; i < ctx.module->program->function_count; ++i) {
             cn_check_function_signature(&ctx, ctx.module->program->functions[i]);
+        }
+    }
+
+    for (size_t module_index = 0; module_index < project->module_count; ++module_index) {
+        ctx.module = project->modules[module_index];
+        if (ctx.module->program == NULL) {
+            continue;
+        }
+
+        cn_diag_bag_set_source(diagnostics, &ctx.module->source);
+
+        for (size_t i = 0; i < ctx.module->program->const_count; ++i) {
+            cn_check_const_decl(&ctx, ctx.module, ctx.module->program->consts[i]);
         }
     }
 

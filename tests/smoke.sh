@@ -51,6 +51,7 @@ cn_verify_llvm_ir() {
 ./build/cnegc check examples/valid_llvm_backend.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_strings.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_input_equality.cneg >"$tmp_valid"
+./build/cnegc check examples/valid_consts_strings.cneg >"$tmp_valid"
 
 ./build/cnegc bench-lexer examples/valid_basic.cneg 5 >"$tmp_valid"
 if ! grep -q 'tokens_per_second:' "$tmp_valid"; then
@@ -80,6 +81,23 @@ if ! grep -q 'return ok (a / b);' "$tmp_ir"; then
 fi
 if ! grep -q 'deref px' "$tmp_ir"; then
     printf 'expected deref lowering in typed IR for valid_modules_ptr_result.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+
+./build/cnegc ir examples/valid_consts_strings.cneg >"$tmp_ir"
+if ! grep -q 'const valid_consts_strings.LOCAL:int = 20;' "$tmp_ir"; then
+    printf 'expected optimized local constant in typed IR for valid_consts_strings.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'if true {' "$tmp_ir"; then
+    printf 'expected folded constant condition in typed IR for valid_consts_strings.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'return 20;' "$tmp_ir"; then
+    printf 'expected folded return value in typed IR for valid_consts_strings.cneg\n'
     cat "$tmp_ir"
     exit 1
 fi
@@ -145,6 +163,19 @@ if ! grep -q '@cn_free_str' "$tmp_ll"; then
 fi
 if ! grep -q '@strcmp' "$tmp_ll"; then
     printf 'expected string equality lowering in LLVM IR for valid_input_equality.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+cn_verify_llvm_ir "$tmp_ll" "$tmp_bc"
+
+./build/cnegc llvm-ir examples/valid_consts_strings.cneg >"$tmp_ll"
+if ! grep -q '@cn_concat_str' "$tmp_ll"; then
+    printf 'expected string concat runtime helper in LLVM IR for valid_consts_strings.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q 'call ptr @cn_dup_cstr' "$tmp_ll"; then
+    printf 'expected owned string copy lowering in LLVM IR for valid_consts_strings.cneg\n'
     cat "$tmp_ll"
     exit 1
 fi
@@ -238,6 +269,39 @@ if ! grep -q 'E3007' "$tmp_invalid"; then
     exit 1
 fi
 
+if ./build/cnegc check examples/invalid_const_runtime.cneg >"$tmp_invalid" 2>&1; then
+    printf 'expected invalid_const_runtime.cneg to fail\n'
+    exit 1
+fi
+
+if ! grep -q 'E3025' "$tmp_invalid"; then
+    printf 'expected E3025 in invalid_const_runtime.cneg output\n'
+    cat "$tmp_invalid"
+    exit 1
+fi
+
+if ./build/cnegc check examples/invalid_const_cycle.cneg >"$tmp_invalid" 2>&1; then
+    printf 'expected invalid_const_cycle.cneg to fail\n'
+    exit 1
+fi
+
+if ! grep -q 'E3026' "$tmp_invalid"; then
+    printf 'expected E3026 in invalid_const_cycle.cneg output\n'
+    cat "$tmp_invalid"
+    exit 1
+fi
+
+if ./build/cnegc check examples/invalid_parse_recovery.cneg >"$tmp_invalid" 2>&1; then
+    printf 'expected invalid_parse_recovery.cneg to fail\n'
+    exit 1
+fi
+
+if [ "$(grep -c "expected ';'" "$tmp_invalid")" -lt 4 ]; then
+    printf 'expected parser recovery to report multiple semicolon errors in invalid_parse_recovery.cneg output\n'
+    cat "$tmp_invalid"
+    exit 1
+fi
+
 ./build/cnegc obj examples/valid_basic.cneg "$tmp_obj" >"$tmp_valid"
 if [ ! -s "$tmp_obj" ]; then
     printf 'expected object output for valid_basic.cneg\n'
@@ -311,6 +375,22 @@ if [ "$status" -ne 1 ]; then
 fi
 if ! grep -q '^neo$' "$tmp_run"; then
     printf 'expected valid_input_equality binary to echo neo\n'
+    cat "$tmp_run"
+    exit 1
+fi
+
+./build/cnegc build examples/valid_consts_strings.cneg "$tmp_bin" >"$tmp_valid"
+set +e
+"$tmp_bin" >"$tmp_run"
+status=$?
+set -e
+if [ "$status" -ne 20 ]; then
+    printf 'expected valid_consts_strings binary to exit 20, got %d\n' "$status"
+    cat "$tmp_run"
+    exit 1
+fi
+if ! grep -q '^hello world$' "$tmp_run"; then
+    printf 'expected valid_consts_strings binary to print hello world\n'
     cat "$tmp_run"
     exit 1
 fi

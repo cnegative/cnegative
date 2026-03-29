@@ -36,7 +36,7 @@ If you want to build native output with `obj` or `build`, you also need:
 Download and unpack:
 
 ```sh
-unzip cnegc-v0.1.0-dev-linux-x86_64.zip
+unzip cnegc-v0.2.0-dev-linux-x86_64.zip
 ```
 
 Move the compiler somewhere on `PATH`, for example:
@@ -64,7 +64,7 @@ cnegc
 Download and unpack:
 
 ```sh
-unzip cnegc-v0.1.0-dev-macos-arm64.zip
+unzip cnegc-v0.2.0-dev-macos-arm64.zip
 ```
 
 Move the compiler somewhere on `PATH`, for example:
@@ -91,7 +91,7 @@ cnegc
 
 Download and unpack:
 
-- Extract `cnegc-v0.1.0-dev-windows-x86_64.zip`
+- Extract `cnegc-v0.2.0-dev-windows-x86_64.zip`
 
 Move `cnegc.exe` to a stable folder, for example:
 

@@ -19,13 +19,16 @@ build/cnegc build examples/valid_basic.cneg
 - `if`, `while`, `loop`, and range `for`.
 - Local function calls and imported module function calls.
 - Struct literals, array literals, field access, indexing, `alloc`, `addr`, `deref`, `free`, `ok`, `err`, `.ok`, and guarded `.value`.
-- `print(...)`, `input()`, and string equality lowered through embedded LLVM runtime helpers backed by libc.
+- Module-level constants lowered after typed IR folding and canonicalization.
+- `print(...)`, `input()`, `str_copy(...)`, `str_concat(...)`, and string equality lowered through embedded LLVM runtime helpers backed by libc.
 - Object emission and binary linking through `clang-18` or `clang`.
 - The emitted module target triple is selected from the host build target instead of being hardcoded to Linux.
 
 ## Runtime Notes
 
 - `input()` trims the trailing newline, duplicates the bytes into owned heap storage, and returns that copy as `str`.
-- `free some_string;` lowers to a tracked string-free helper so `input()` results can be released safely without freeing string literals.
+- `str_copy(...)` duplicates an existing string into owned heap storage through the generated runtime helper.
+- `str_concat(...)` allocates and returns a new owned concatenated string through the generated runtime helper.
+- `free some_string;` lowers to a tracked string-free helper so owned runtime strings can be released safely without freeing string literals.
 
 Unsupported lowering reports `E3021` before any LLVM IR text is printed.

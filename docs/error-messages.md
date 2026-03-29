@@ -36,6 +36,9 @@
 - `E3022`: external backend toolchain step failed.
 - `E3023`: public API exposes a private type.
 - `E3024`: `result.value` is used without a proven-ok guard.
+- `E3025`: module-level constant initializer uses a runtime-only operation.
+- `E3026`: cyclic module-level constant definition.
+- `E3027`: duplicate or conflicting top-level constant name.
 
 ## Diagnostic Style
 
@@ -44,3 +47,4 @@
 - Prefer describing both expected and actual types.
 - Reject ambiguous truthiness in conditions with `E3005`.
 - Report missing or unknown struct fields directly at the literal or access site.
+- Continue parsing after common syntax mistakes when recovery is safe so multiple real errors can be reported in one pass.
