@@ -68,6 +68,16 @@ jobs:
         run: |
           cmake --version
           clang --version
+          if command -v python3 >/dev/null 2>&1; then
+            python3 --version
+          elif command -v python >/dev/null 2>&1; then
+            python --version
+          elif command -v py >/dev/null 2>&1; then
+            py -3 --version
+          else
+            echo "Python 3 not found; network integration targets will be unavailable"
+            exit 1
+          fi
           if command -v llvm-as-18 >/dev/null 2>&1; then
             llvm-as-18 --version
           elif command -v llvm-as >/dev/null 2>&1; then
@@ -87,6 +97,12 @@ jobs:
 
       - name: Test
         run: ctest --test-dir out --output-on-failure -C Release
+
+      - name: TCP integration
+        run: cmake --build out --config Release --target net-test
+
+      - name: UDP integration
+        run: cmake --build out --config Release --target udp-test
 
       - name: Package compiler
         run: |
