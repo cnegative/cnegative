@@ -12,6 +12,7 @@ RUNNER = r"""
 import os
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -50,8 +51,10 @@ for run_index in range(repetitions):
         process_env = dict(os.environ)
         process_env["CNEGATIVE_NET_TEST_PORT"] = str(port)
 
-        server_log = Path(f"/tmp/cnegative-net-server-{run_index}-{attempt_index}.log")
-        client_log = Path(f"/tmp/cnegative-net-client-{run_index}-{attempt_index}.log")
+        log_dir = Path(tempfile.gettempdir()) / "cnegative-net"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        server_log = log_dir / f"server-{run_index}-{attempt_index}.log"
+        client_log = log_dir / f"client-{run_index}-{attempt_index}.log"
         with server_log.open("wb") as server_out, client_log.open("wb") as client_out:
             server_proc = subprocess.Popen(
                 [str(server_binary)],
