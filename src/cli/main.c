@@ -124,6 +124,24 @@ static bool cn_path_is_separator(char value) {
     return value == '/' || value == '\\';
 }
 
+#ifdef _WIN32
+static bool cn_path_has_extension(const char *path) {
+    const char *last_separator = NULL;
+    const char *last_dot = NULL;
+
+    for (const char *cursor = path; *cursor != '\0'; ++cursor) {
+        if (cn_path_is_separator(*cursor)) {
+            last_separator = cursor;
+            last_dot = NULL;
+        } else if (*cursor == '.') {
+            last_dot = cursor;
+        }
+    }
+
+    return last_dot != NULL && (last_separator == NULL || last_dot > last_separator);
+}
+#endif
+
 static void cn_default_output_path(const char *input_path, const char *suffix, bool keep_extension, char *buffer, size_t buffer_size) {
     const char *slash = NULL;
     for (const char *cursor = input_path; *cursor != '\0'; ++cursor) {
@@ -306,7 +324,21 @@ int main(int argc, char **argv) {
     }
 
     if (strcmp(command, "build") == 0) {
-        resolved_output = argc == 4 ? argv[3] : (cn_default_output_path(input_path, CN_DEFAULT_BINARY_SUFFIX, false, output_path, sizeof(output_path)), output_path);
+        if (argc == 4) {
+#ifdef _WIN32
+            if (cn_path_has_extension(argv[3])) {
+                resolved_output = argv[3];
+            } else {
+                snprintf(output_path, sizeof(output_path), "%s%s", argv[3], CN_DEFAULT_BINARY_SUFFIX);
+                resolved_output = output_path;
+            }
+#else
+            resolved_output = argv[3];
+#endif
+        } else {
+            cn_default_output_path(input_path, CN_DEFAULT_BINARY_SUFFIX, false, output_path, sizeof(output_path));
+            resolved_output = output_path;
+        }
         return cn_run_build(input_path, resolved_output);
     }
 
