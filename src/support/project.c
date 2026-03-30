@@ -145,6 +145,26 @@ static cn_program *cn_builtin_stdlib_program(cn_allocator *allocator, const char
         cn_builtin_push_param(allocator, abs, "value", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
         cn_program_push_function(program, abs);
 
+        cn_function *sign = cn_builtin_function_create(allocator, "sign", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, sign, "value", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, sign);
+
+        cn_function *square = cn_builtin_function_create(allocator, "square", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, square, "value", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, square);
+
+        cn_function *cube = cn_builtin_function_create(allocator, "cube", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, cube, "value", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, cube);
+
+        cn_function *is_even = cn_builtin_function_create(allocator, "is_even", cn_builtin_primitive_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(allocator, is_even, "value", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, is_even);
+
+        cn_function *is_odd = cn_builtin_function_create(allocator, "is_odd", cn_builtin_primitive_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(allocator, is_odd, "value", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, is_odd);
+
         cn_function *min = cn_builtin_function_create(allocator, "min", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
         cn_builtin_push_param(allocator, min, "left", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
         cn_builtin_push_param(allocator, min, "right", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
@@ -160,6 +180,27 @@ static cn_program *cn_builtin_stdlib_program(cn_allocator *allocator, const char
         cn_builtin_push_param(allocator, clamp, "lower", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
         cn_builtin_push_param(allocator, clamp, "upper", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
         cn_program_push_function(program, clamp);
+
+        cn_function *gcd = cn_builtin_function_create(allocator, "gcd", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, gcd, "left", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, gcd, "right", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, gcd);
+
+        cn_function *lcm = cn_builtin_function_create(allocator, "lcm", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, lcm, "left", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, lcm, "right", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, lcm);
+
+        cn_function *distance = cn_builtin_function_create(allocator, "distance", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, distance, "left", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, distance, "right", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, distance);
+
+        cn_function *between = cn_builtin_function_create(allocator, "between", cn_builtin_primitive_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(allocator, between, "value", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, between, "lower", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, between, "upper", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, between);
         return program;
     }
 

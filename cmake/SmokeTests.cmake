@@ -184,7 +184,10 @@ cn_assert_contains("${TMP_IR}" "std.net.udp_recv_from")
 cn_assert_contains("${TMP_IR}" "result std.net.UdpPacket")
 
 cn_run_expect_success("${TMP_IR}" "${CNEGC_BIN}" ir examples/valid_stdlib_math_process.cneg)
+cn_assert_contains("${TMP_IR}" "%")
 cn_assert_contains("${TMP_IR}" "std.math.clamp")
+cn_assert_contains("${TMP_IR}" "std.math.gcd")
+cn_assert_contains("${TMP_IR}" "std.math.between")
 cn_assert_contains("${TMP_IR}" "std.process.platform")
 
 cn_run_expect_success("${TMP_IR}" "${CNEGC_BIN}" ir examples/valid_stdlib_path_fs_extra.cneg)
@@ -280,6 +283,9 @@ cn_verify_llvm_ir("${TMP_LL}" "${TMP_BC}")
 
 cn_run_expect_success("${TMP_LL}" "${CNEGC_BIN}" llvm-ir examples/valid_stdlib_math_process.cneg)
 cn_assert_contains("${TMP_LL}" "@cn_math_clamp")
+cn_assert_contains("${TMP_LL}" "@cn_math_gcd")
+cn_assert_contains("${TMP_LL}" "@cn_math_between")
+cn_assert_contains("${TMP_LL}" "srem ")
 cn_assert_contains("${TMP_LL}" "@cn_process_platform")
 cn_assert_contains("${TMP_LL}" "@cn_process_exit")
 cn_verify_llvm_ir("${TMP_LL}" "${TMP_BC}")
@@ -424,8 +430,8 @@ cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" build examples/valid_stdlib_
 cn_run_binary("${TMP_RUN}" 0 "" "${TMP_BIN}")
 
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" build examples/valid_stdlib_math_process.cneg "${TMP_BIN}")
-cn_run_binary("${TMP_RUN}" 7 "" "${TMP_BIN}")
-cn_assert_contains("${TMP_RUN}" "7")
+cn_run_binary("${TMP_RUN}" 6 "" "${TMP_BIN}")
+cn_assert_contains("${TMP_RUN}" "6")
 
 file(REMOVE "${ROOT_DIR}/build/path_extra.txt")
 file(REMOVE "${ROOT_DIR}/build/path_extra_copy.txt")

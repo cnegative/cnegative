@@ -4,7 +4,7 @@
 
 It is being shaped as a good place to start before jumping into C, C++, or lower-level systems programming directly. The goal is to keep the language explicit and low-level, while making the surface easier to read, reason about, and modify.
 
-Current project status: `v0.3.0`
+Current project status: `v0.3.1`
 
 This repository currently ships the `cnegc` compiler with:
 
@@ -91,11 +91,19 @@ Implemented today:
 
 Current integer rule:
 
+- `int` arithmetic operators currently include `+`, `-`, `*`, `/`, and `%`
 - `u8` is a real primitive byte-sized value type
 - `byte` is an alias for `u8`
 - integer literals fit into `u8` automatically when a `u8` is expected
 - arithmetic stays `int`-only for now
 - equality and ordered comparisons work for matching `u8` values
+
+`std.math` is also integer-only today and includes:
+
+- `abs`, `sign`, `square`, `cube`
+- `min`, `max`, `clamp`, `between`
+- `is_even`, `is_odd`
+- `gcd`, `lcm`, `distance`
 
 Current runtime boundary:
 

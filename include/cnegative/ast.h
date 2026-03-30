@@ -80,6 +80,7 @@ typedef enum cn_binary_op {
     CN_BINARY_SUB,
     CN_BINARY_MUL,
     CN_BINARY_DIV,
+    CN_BINARY_MOD,
     CN_BINARY_EQUAL,
     CN_BINARY_NOT_EQUAL,
     CN_BINARY_LESS,

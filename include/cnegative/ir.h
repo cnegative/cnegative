@@ -38,6 +38,7 @@ typedef enum cn_ir_binary_op {
     CN_IR_BINARY_SUB,
     CN_IR_BINARY_MUL,
     CN_IR_BINARY_DIV,
+    CN_IR_BINARY_MOD,
     CN_IR_BINARY_EQUAL,
     CN_IR_BINARY_NOT_EQUAL,
     CN_IR_BINARY_LESS,

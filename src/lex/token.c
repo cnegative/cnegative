@@ -54,6 +54,7 @@ const char *cn_token_kind_name(cn_token_kind kind) {
     case CN_TOKEN_MINUS: return "-";
     case CN_TOKEN_STAR: return "*";
     case CN_TOKEN_SLASH: return "/";
+    case CN_TOKEN_PERCENT: return "%";
     case CN_TOKEN_BANG: return "!";
     case CN_TOKEN_EQUAL: return "=";
     case CN_TOKEN_EQUAL_EQUAL: return "==";

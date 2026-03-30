@@ -14,7 +14,7 @@ build/cnegc build examples/valid_basic.cneg
 
 - `int`, `u8`, `bool`, `str`, arrays, structs, `ptr`, and `result` function/data types.
 - Local bindings with mutable reassignment.
-- Arithmetic and comparison operators.
+- Arithmetic and comparison operators, including integer `%`.
 - Short-circuit `&&` and `||`.
 - `if`, `while`, `loop`, and range `for`.
 - Local function calls and imported module function calls.
@@ -35,7 +35,7 @@ build/cnegc build examples/valid_basic.cneg
 - `std.fs.exists(...)`, `std.fs.cwd(...)`, `std.fs.create_dir(...)`, `std.fs.remove_dir(...)`, `std.fs.read_text(...)`, `std.fs.file_size(...)`, `std.fs.copy(...)`, `std.fs.write_text(...)`, `std.fs.append_text(...)`, `std.fs.rename(...)`, `std.fs.move(...)`, and `std.fs.remove(...)` lower to runtime file helpers built on libc stdio and basic directory APIs.
 - `std.io.write(...)` lowers to a string write helper without a newline, `std.io.write_line(...)` lowers to a newline-print helper, and `std.io.read_line(...)` lowers to the same owned-string runtime helper as `input()`.
 - `std.time.now_ms(...)` lowers to a millisecond clock helper and `std.time.sleep_ms(...)` lowers to a runtime sleep helper.
-- `std.math.abs(...)`, `std.math.min(...)`, `std.math.max(...)`, and `std.math.clamp(...)` lower to small integer runtime helpers.
+- `std.math.abs(...)`, `std.math.sign(...)`, `std.math.square(...)`, `std.math.cube(...)`, `std.math.min(...)`, `std.math.max(...)`, `std.math.clamp(...)`, `std.math.between(...)`, `std.math.is_even(...)`, `std.math.is_odd(...)`, `std.math.gcd(...)`, `std.math.lcm(...)`, and `std.math.distance(...)` lower to small integer runtime helpers.
 - `std.env.has(...)` and `std.env.get(...)` lower to runtime environment helpers built on libc `getenv`.
 - `std.path.join(...)`, `std.path.file_name(...)`, `std.path.stem(...)`, `std.path.extension(...)`, `std.path.is_absolute(...)`, and `std.path.parent(...)` lower to runtime path helpers that understand both `/` and `\\` separators.
 - `std.net.is_ipv4(...)` lowers to a dotted-decimal IPv4 validator, `std.net.join_host_port(...)` lowers to a formatting helper that returns an owned `"host:port"` string, the blocking `std.net.tcp_connect(...)`, `std.net.tcp_listen(...)`, `std.net.accept(...)`, `std.net.send(...)`, `std.net.recv(...)`, and `std.net.close(...)` calls lower to embedded IPv4 TCP runtime helpers, and `std.net.udp_bind(...)`, `std.net.udp_send_to(...)`, and `std.net.udp_recv_from(...)` lower to embedded IPv4 UDP runtime helpers.

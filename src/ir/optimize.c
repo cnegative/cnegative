@@ -188,6 +188,11 @@ static void cn_ir_opt_fold_binary(cn_allocator *allocator, cn_ir_expr *expressio
                 cn_ir_opt_replace_with_int(allocator, expression, lhs / rhs);
             }
             return;
+        case CN_IR_BINARY_MOD:
+            if (rhs != 0) {
+                cn_ir_opt_replace_with_int(allocator, expression, lhs % rhs);
+            }
+            return;
         case CN_IR_BINARY_EQUAL: cn_ir_opt_replace_with_bool(allocator, expression, lhs == rhs); return;
         case CN_IR_BINARY_NOT_EQUAL: cn_ir_opt_replace_with_bool(allocator, expression, lhs != rhs); return;
         case CN_IR_BINARY_LESS: cn_ir_opt_replace_with_bool(allocator, expression, lhs < rhs); return;

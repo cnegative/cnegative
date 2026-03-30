@@ -359,6 +359,11 @@ static bool cn_llvm_validate_call(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expre
         }
 
         if (cn_llvm_call_matches(expression, "std.math", "abs") ||
+            cn_llvm_call_matches(expression, "std.math", "sign") ||
+            cn_llvm_call_matches(expression, "std.math", "square") ||
+            cn_llvm_call_matches(expression, "std.math", "cube") ||
+            cn_llvm_call_matches(expression, "std.math", "is_even") ||
+            cn_llvm_call_matches(expression, "std.math", "is_odd") ||
             cn_llvm_call_matches(expression, "std.strings", "len") ||
             cn_llvm_call_matches(expression, "std.parse", "to_int") ||
             cn_llvm_call_matches(expression, "std.parse", "to_bool") ||
@@ -387,6 +392,9 @@ static bool cn_llvm_validate_call(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expre
 
         if (cn_llvm_call_matches(expression, "std.math", "min") ||
             cn_llvm_call_matches(expression, "std.math", "max") ||
+            cn_llvm_call_matches(expression, "std.math", "gcd") ||
+            cn_llvm_call_matches(expression, "std.math", "lcm") ||
+            cn_llvm_call_matches(expression, "std.math", "distance") ||
             cn_llvm_call_matches(expression, "std.strings", "eq") ||
             cn_llvm_call_matches(expression, "std.strings", "starts_with") ||
             cn_llvm_call_matches(expression, "std.strings", "ends_with") ||
@@ -406,7 +414,8 @@ static bool cn_llvm_validate_call(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expre
             return cn_llvm_validate_builtin_arguments(ctx, expression, 2, "unexpected builtin stdlib arity");
         }
 
-        if (cn_llvm_call_matches(expression, "std.math", "clamp")) {
+        if (cn_llvm_call_matches(expression, "std.math", "clamp") ||
+            cn_llvm_call_matches(expression, "std.math", "between")) {
             return cn_llvm_validate_builtin_arguments(ctx, expression, 3, "unexpected builtin stdlib arity");
         }
 
@@ -1540,6 +1549,26 @@ static cn_llvm_value cn_llvm_lower_builtin_call(cn_llvm_function_ctx *ctx, cn_ll
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_math_abs", arguments, 1);
     }
 
+    if (cn_llvm_call_matches(expression, "std.math", "sign")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_math_sign", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.math", "square")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_math_square", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.math", "cube")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_math_cube", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.math", "is_even")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_math_is_even", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.math", "is_odd")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_math_is_odd", arguments, 1);
+    }
+
     if (cn_llvm_call_matches(expression, "std.strings", "len")) {
         return cn_llvm_emit_named_call(ctx, expression->type, "@strlen", arguments, 1);
     }
@@ -1574,6 +1603,22 @@ static cn_llvm_value cn_llvm_lower_builtin_call(cn_llvm_function_ctx *ctx, cn_ll
 
     if (cn_llvm_call_matches(expression, "std.math", "clamp")) {
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_math_clamp", arguments, 3);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.math", "gcd")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_math_gcd", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.math", "lcm")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_math_lcm", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.math", "distance")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_math_distance", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.math", "between")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_math_between", arguments, 3);
     }
 
     if (cn_llvm_call_matches(expression, "std.net", "is_ipv4")) {
@@ -1907,6 +1952,11 @@ static cn_llvm_value cn_llvm_lower_expression(cn_llvm_function_ctx *ctx, cn_llvm
             break;
         case CN_IR_BINARY_DIV:
             fputs(" = sdiv ", ctx->emit->stream);
+            cn_llvm_emit_type(ctx->emit->stream, left.type);
+            fputc(' ', ctx->emit->stream);
+            break;
+        case CN_IR_BINARY_MOD:
+            fputs(" = srem ", ctx->emit->stream);
             cn_llvm_emit_type(ctx->emit->stream, left.type);
             fputc(' ', ctx->emit->stream);
             break;

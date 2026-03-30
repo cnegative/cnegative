@@ -516,6 +516,7 @@ static cn_binary_op cn_binary_from_token(cn_token_kind kind) {
     case CN_TOKEN_MINUS: return CN_BINARY_SUB;
     case CN_TOKEN_STAR: return CN_BINARY_MUL;
     case CN_TOKEN_SLASH: return CN_BINARY_DIV;
+    case CN_TOKEN_PERCENT: return CN_BINARY_MOD;
     case CN_TOKEN_EQUAL_EQUAL: return CN_BINARY_EQUAL;
     case CN_TOKEN_BANG_EQUAL: return CN_BINARY_NOT_EQUAL;
     case CN_TOKEN_LESS: return CN_BINARY_LESS;
@@ -562,8 +563,8 @@ static cn_expr *cn_parse_binary_chain(cn_parser *parser, cn_expr *(*subparser)(c
 }
 
 static cn_expr *cn_parse_factor(cn_parser *parser) {
-    const cn_token_kind kinds[] = {CN_TOKEN_STAR, CN_TOKEN_SLASH};
-    return cn_parse_binary_chain(parser, cn_parse_unary, kinds, 2);
+    const cn_token_kind kinds[] = {CN_TOKEN_STAR, CN_TOKEN_SLASH, CN_TOKEN_PERCENT};
+    return cn_parse_binary_chain(parser, cn_parse_unary, kinds, 3);
 }
 
 static cn_expr *cn_parse_term(cn_parser *parser) {

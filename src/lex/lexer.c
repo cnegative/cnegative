@@ -233,6 +233,9 @@ bool cn_lexer_run(cn_lexer *lexer, cn_token_buffer *tokens) {
         case '/':
             cn_lexer_emit(lexer, tokens, CN_TOKEN_SLASH, offset, line, column, 1);
             break;
+        case '%':
+            cn_lexer_emit(lexer, tokens, CN_TOKEN_PERCENT, offset, line, column, 1);
+            break;
         case '!':
             cn_lexer_emit(
                 lexer,

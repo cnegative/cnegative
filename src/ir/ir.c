@@ -560,6 +560,7 @@ static const char *cn_ir_binary_op_name(cn_ir_binary_op op) {
     case CN_IR_BINARY_SUB: return "-";
     case CN_IR_BINARY_MUL: return "*";
     case CN_IR_BINARY_DIV: return "/";
+    case CN_IR_BINARY_MOD: return "%";
     case CN_IR_BINARY_EQUAL: return "==";
     case CN_IR_BINARY_NOT_EQUAL: return "!=";
     case CN_IR_BINARY_LESS: return "<";

@@ -1144,6 +1144,7 @@ static const cn_type_ref *cn_check_expression_hint(cn_sema_ctx *ctx, cn_scope *s
         case CN_BINARY_SUB:
         case CN_BINARY_MUL:
         case CN_BINARY_DIV:
+        case CN_BINARY_MOD:
             if (!cn_type_equal(left, cn_builtin_type(CN_TYPE_INT))) {
                 cn_emit_type_mismatch(ctx->diagnostics, expression->offset, "arithmetic operator requires int", cn_builtin_type(CN_TYPE_INT), left);
             }

@@ -61,6 +61,14 @@ Statement rule:
 
 `byte` is a source-level alias for `u8`.
 
+Current arithmetic operators on `int` are:
+
+- `+`
+- `-`
+- `*`
+- `/`
+- `%`
+
 Implemented composite type forms:
 
 - `ptr T`
@@ -138,9 +146,18 @@ import std.process as process;
 Current builtin stdlib surface:
 
 - `std.math.abs(int) -> int`
+- `std.math.sign(int) -> int`
+- `std.math.square(int) -> int`
+- `std.math.cube(int) -> int`
+- `std.math.is_even(int) -> bool`
+- `std.math.is_odd(int) -> bool`
 - `std.math.min(int, int) -> int`
 - `std.math.max(int, int) -> int`
 - `std.math.clamp(int, int, int) -> int`
+- `std.math.gcd(int, int) -> int`
+- `std.math.lcm(int, int) -> int`
+- `std.math.distance(int, int) -> int`
+- `std.math.between(int, int, int) -> bool`
 - `std.strings.len(str) -> int`
 - `std.strings.copy(str) -> str`
 - `std.strings.concat(str, str) -> str`
@@ -278,7 +295,7 @@ Current runtime notes:
 - `std.io.read_line()` lowers to the same owned heap-backed runtime helper as `input()`.
 - `std.time.now_ms()` lowers to a runtime clock helper that returns the current wall-clock time in milliseconds.
 - `std.time.sleep_ms(int)` lowers to a runtime sleep helper.
-- `std.math` currently lowers to integer-only runtime helpers for absolute value, min/max, and clamp.
+- `std.math` currently lowers to integer-only runtime helpers for sign/absolute-value helpers, parity checks, min/max/clamp/between helpers, and `gcd`/`lcm`/distance-style helpers.
 - `str_copy(s)` returns a new owned heap-backed copy of `s`.
 - `str_concat(a, b)` returns a new owned heap-backed concatenated string.
 - `std.strings.copy(s)` and `std.strings.concat(a, b)` lower to the same owned-string runtime helpers as `str_copy(...)` and `str_concat(...)`.

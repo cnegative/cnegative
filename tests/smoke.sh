@@ -214,8 +214,23 @@ if ! grep -q 'result std.net.UdpPacket' "$tmp_ir"; then
 fi
 
 ./build/cnegc ir examples/valid_stdlib_math_process.cneg >"$tmp_ir"
+if ! grep -q '%' "$tmp_ir"; then
+    printf 'expected modulo operator lowering in typed IR for valid_stdlib_math_process.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
 if ! grep -q 'std.math.clamp' "$tmp_ir"; then
     printf 'expected std.math.clamp builtin lowering in typed IR for valid_stdlib_math_process.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.math.gcd' "$tmp_ir"; then
+    printf 'expected std.math.gcd builtin lowering in typed IR for valid_stdlib_math_process.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.math.between' "$tmp_ir"; then
+    printf 'expected std.math.between builtin lowering in typed IR for valid_stdlib_math_process.cneg\n'
     cat "$tmp_ir"
     exit 1
 fi
@@ -487,6 +502,21 @@ cn_verify_llvm_ir "$tmp_ll" "$tmp_bc"
 ./build/cnegc llvm-ir examples/valid_stdlib_math_process.cneg >"$tmp_ll"
 if ! grep -q '@cn_math_clamp' "$tmp_ll"; then
     printf 'expected std.math clamp lowering in LLVM IR for valid_stdlib_math_process.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_math_gcd' "$tmp_ll"; then
+    printf 'expected std.math gcd lowering in LLVM IR for valid_stdlib_math_process.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_math_between' "$tmp_ll"; then
+    printf 'expected std.math between lowering in LLVM IR for valid_stdlib_math_process.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q 'srem ' "$tmp_ll"; then
+    printf 'expected modulo lowering in LLVM IR for valid_stdlib_math_process.cneg\n'
     cat "$tmp_ll"
     exit 1
 fi
@@ -907,13 +937,13 @@ set +e
 "$tmp_bin" >"$tmp_run"
 status=$?
 set -e
-if [ "$status" -ne 7 ]; then
-    printf 'expected valid_stdlib_math_process binary to exit 7, got %d\n' "$status"
+if [ "$status" -ne 6 ]; then
+    printf 'expected valid_stdlib_math_process binary to exit 6, got %d\n' "$status"
     cat "$tmp_run"
     exit 1
 fi
-if ! grep -q '^7$' "$tmp_run"; then
-    printf 'expected valid_stdlib_math_process binary to print 7\n'
+if ! grep -q '^6$' "$tmp_run"; then
+    printf 'expected valid_stdlib_math_process binary to print 6\n'
     cat "$tmp_run"
     exit 1
 fi

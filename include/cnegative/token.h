@@ -57,6 +57,7 @@ typedef enum cn_token_kind {
     CN_TOKEN_MINUS,
     CN_TOKEN_STAR,
     CN_TOKEN_SLASH,
+    CN_TOKEN_PERCENT,
     CN_TOKEN_BANG,
     CN_TOKEN_EQUAL,
     CN_TOKEN_EQUAL_EQUAL,

@@ -305,6 +305,7 @@ static cn_ir_binary_op cn_ir_binary_from_ast(cn_binary_op op) {
     case CN_BINARY_SUB: return CN_IR_BINARY_SUB;
     case CN_BINARY_MUL: return CN_IR_BINARY_MUL;
     case CN_BINARY_DIV: return CN_IR_BINARY_DIV;
+    case CN_BINARY_MOD: return CN_IR_BINARY_MOD;
     case CN_BINARY_EQUAL: return CN_IR_BINARY_EQUAL;
     case CN_BINARY_NOT_EQUAL: return CN_IR_BINARY_NOT_EQUAL;
     case CN_BINARY_LESS: return CN_IR_BINARY_LESS;
@@ -720,6 +721,7 @@ static cn_ir_expr *cn_ir_lower_expression(cn_ir_lower_ctx *ctx, cn_ir_scope *sco
         case CN_BINARY_SUB:
         case CN_BINARY_MUL:
         case CN_BINARY_DIV:
+        case CN_BINARY_MOD:
             ir_expression->type = cn_ir_make_builtin_type(ctx->allocator, CN_IR_TYPE_INT);
             break;
         case CN_BINARY_EQUAL:

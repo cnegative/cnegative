@@ -3,28 +3,78 @@ import std.process as process;
 import std.strings as strings;
 
 fn:int main() {
-    if math.abs(-7) != 7 {
+    let sample:int = 20;
+
+    if sample % 6 != 2 {
         return 1;
     }
 
-    if math.min(3, 9) != 3 {
+    if math.abs(-7) != 7 {
         return 2;
     }
 
-    if math.max(3, 9) != 9 {
+    if math.sign(-7) != -1 {
         return 3;
     }
 
-    if math.clamp(20, 0, 7) != 7 {
+    if math.sign(0) != 0 {
         return 4;
     }
 
-    if math.clamp(-5, 0, 7) != 0 {
+    if math.sign(7) != 1 {
         return 5;
     }
 
-    if math.clamp(4, 7, 0) != 4 {
+    if math.square(9) != 81 {
         return 6;
+    }
+
+    if math.cube(-3) != -27 {
+        return 7;
+    }
+
+    if !math.is_even(20) {
+        return 8;
+    }
+
+    if !math.is_odd(7) {
+        return 9;
+    }
+
+    if math.min(3, 9) != 3 {
+        return 10;
+    }
+
+    if math.max(3, 9) != 9 {
+        return 11;
+    }
+
+    if math.clamp(20, 0, 7) != 7 {
+        return 12;
+    }
+
+    if math.clamp(-5, 0, 7) != 0 {
+        return 13;
+    }
+
+    if math.clamp(4, 7, 0) != 4 {
+        return 14;
+    }
+
+    if !math.between(4, 7, 0) {
+        return 15;
+    }
+
+    if math.gcd(54, 24) != 6 {
+        return 16;
+    }
+
+    if math.lcm(6, 8) != 24 {
+        return 17;
+    }
+
+    if math.distance(17, 4) != 13 {
+        return 18;
     }
 
     let platform:str = process.platform();
@@ -33,18 +83,18 @@ fn:int main() {
     if strings.len(platform) == 0 {
         free platform;
         free arch;
-        return 7;
+        return 19;
     }
 
     if strings.len(arch) == 0 {
         free platform;
         free arch;
-        return 8;
+        return 20;
     }
 
-    print(math.clamp(20, 0, 7));
+    print(math.gcd(54, 24));
     free platform;
     free arch;
-    process.exit(7);
-    return 9;
+    process.exit(6);
+    return 21;
 }
