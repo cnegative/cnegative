@@ -217,6 +217,24 @@ static bool cn_backend_compile_ir_to_object(const char *ir_path, const char *obj
 }
 
 static bool cn_backend_link_object_to_binary(const char *object_path, const char *binary_path, cn_diag_bag *diagnostics) {
+#ifdef _WIN32
+    char *clang18_argv[] = {
+        "clang-18",
+        (char *)object_path,
+        "-o",
+        (char *)binary_path,
+        "-lws2_32",
+        NULL
+    };
+    char *clang_argv[] = {
+        "clang",
+        (char *)object_path,
+        "-o",
+        (char *)binary_path,
+        "-lws2_32",
+        NULL
+    };
+#else
     char *clang18_argv[] = {
         "clang-18",
         (char *)object_path,
@@ -231,6 +249,7 @@ static bool cn_backend_link_object_to_binary(const char *object_path, const char
         (char *)binary_path,
         NULL
     };
+#endif
 
     return cn_backend_run_clang_stage(
         diagnostics,

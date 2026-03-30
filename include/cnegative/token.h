@@ -29,6 +29,8 @@ typedef enum cn_token_kind {
     CN_TOKEN_IMPORT,
     CN_TOKEN_AS,
     CN_TOKEN_INT,
+    CN_TOKEN_U8,
+    CN_TOKEN_BYTE,
     CN_TOKEN_BOOL,
     CN_TOKEN_STR,
     CN_TOKEN_VOID,

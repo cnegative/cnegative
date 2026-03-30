@@ -175,8 +175,40 @@ static const cn_ir_struct *cn_llvm_find_struct(const cn_ir_program *program, cn_
     return NULL;
 }
 
+static bool cn_llvm_is_runtime_owned_struct(cn_strview module_name, cn_strview struct_name) {
+    return cn_sv_eq_cstr(module_name, "std.net") && cn_sv_eq_cstr(struct_name, "UdpPacket");
+}
+
 static bool cn_llvm_type_is_void_like(const cn_ir_type *type) {
     return type == NULL || type->kind == CN_IR_TYPE_VOID || type->kind == CN_IR_TYPE_UNKNOWN;
+}
+
+static void cn_llvm_emit_identifier_part(FILE *stream, cn_strview value) {
+    for (size_t i = 0; i < value.length; ++i) {
+        unsigned char ch = (unsigned char)value.data[i];
+        bool is_alpha = (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z');
+        bool is_digit = ch >= '0' && ch <= '9';
+        if (is_alpha || is_digit || ch == '_') {
+            fputc((int)ch, stream);
+        } else {
+            fprintf(stream, "_x%02X_", ch);
+        }
+    }
+}
+
+static const char *cn_llvm_compare_prefix(cn_ir_binary_op op, cn_ir_type_kind kind) {
+    switch (op) {
+    case CN_IR_BINARY_LESS:
+        return kind == CN_IR_TYPE_U8 ? " = icmp ult " : " = icmp slt ";
+    case CN_IR_BINARY_LESS_EQUAL:
+        return kind == CN_IR_TYPE_U8 ? " = icmp ule " : " = icmp sle ";
+    case CN_IR_BINARY_GREATER:
+        return kind == CN_IR_TYPE_U8 ? " = icmp ugt " : " = icmp sgt ";
+    case CN_IR_BINARY_GREATER_EQUAL:
+        return kind == CN_IR_TYPE_U8 ? " = icmp uge " : " = icmp sge ";
+    default:
+        return NULL;
+    }
 }
 
 static bool cn_llvm_validate_type(cn_llvm_emit_ctx *ctx, const cn_ir_type *type, size_t offset) {
@@ -186,6 +218,7 @@ static bool cn_llvm_validate_type(cn_llvm_emit_ctx *ctx, const cn_ir_type *type,
 
     switch (type->kind) {
     case CN_IR_TYPE_INT:
+    case CN_IR_TYPE_U8:
     case CN_IR_TYPE_BOOL:
     case CN_IR_TYPE_STR:
     case CN_IR_TYPE_VOID:
@@ -215,6 +248,7 @@ static bool cn_llvm_validate_type(cn_llvm_emit_ctx *ctx, const cn_ir_type *type,
 static bool cn_llvm_type_supports_equality(cn_llvm_emit_ctx *ctx, const cn_ir_type *type) {
     switch (type->kind) {
     case CN_IR_TYPE_INT:
+    case CN_IR_TYPE_U8:
     case CN_IR_TYPE_BOOL:
     case CN_IR_TYPE_PTR:
     case CN_IR_TYPE_STR:
@@ -245,6 +279,7 @@ static bool cn_llvm_type_supports_equality(cn_llvm_emit_ctx *ctx, const cn_ir_ty
 
 static bool cn_llvm_type_supports_print(const cn_ir_type *type) {
     return type->kind == CN_IR_TYPE_INT ||
+           type->kind == CN_IR_TYPE_U8 ||
            type->kind == CN_IR_TYPE_BOOL ||
            type->kind == CN_IR_TYPE_STR;
 }
@@ -328,6 +363,8 @@ static bool cn_llvm_validate_call(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expre
             cn_llvm_call_matches(expression, "std.parse", "to_int") ||
             cn_llvm_call_matches(expression, "std.parse", "to_bool") ||
             cn_llvm_call_matches(expression, "std.net", "is_ipv4") ||
+            cn_llvm_call_matches(expression, "std.net", "accept") ||
+            cn_llvm_call_matches(expression, "std.net", "close") ||
             cn_llvm_call_matches(expression, "std.env", "has") ||
             cn_llvm_call_matches(expression, "std.env", "get") ||
             cn_llvm_call_matches(expression, "std.fs", "exists") ||
@@ -353,18 +390,28 @@ static bool cn_llvm_validate_call(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expre
             cn_llvm_call_matches(expression, "std.strings", "eq") ||
             cn_llvm_call_matches(expression, "std.strings", "starts_with") ||
             cn_llvm_call_matches(expression, "std.strings", "ends_with") ||
+            cn_llvm_call_matches(expression, "std.net", "tcp_connect") ||
+            cn_llvm_call_matches(expression, "std.net", "tcp_listen") ||
+            cn_llvm_call_matches(expression, "std.net", "udp_bind") ||
+            cn_llvm_call_matches(expression, "std.net", "udp_recv_from") ||
             cn_llvm_call_matches(expression, "std.fs", "copy") ||
             cn_llvm_call_matches(expression, "std.fs", "write_text") ||
             cn_llvm_call_matches(expression, "std.fs", "append_text") ||
             cn_llvm_call_matches(expression, "std.fs", "rename") ||
             cn_llvm_call_matches(expression, "std.fs", "move") ||
             cn_llvm_call_matches(expression, "std.net", "join_host_port") ||
+            cn_llvm_call_matches(expression, "std.net", "send") ||
+            cn_llvm_call_matches(expression, "std.net", "recv") ||
             cn_llvm_call_matches(expression, "std.path", "join")) {
             return cn_llvm_validate_builtin_arguments(ctx, expression, 2, "unexpected builtin stdlib arity");
         }
 
         if (cn_llvm_call_matches(expression, "std.math", "clamp")) {
             return cn_llvm_validate_builtin_arguments(ctx, expression, 3, "unexpected builtin stdlib arity");
+        }
+
+        if (cn_llvm_call_matches(expression, "std.net", "udp_send_to")) {
+            return cn_llvm_validate_builtin_arguments(ctx, expression, 4, "unexpected builtin stdlib arity");
         }
 
         cn_llvm_emit_unsupported_feature(ctx->diagnostics, expression->offset, "unknown builtin call target");
@@ -639,6 +686,9 @@ static void cn_llvm_emit_type(FILE *stream, const cn_ir_type *type) {
     case CN_IR_TYPE_INT:
         fputs("i64", stream);
         break;
+    case CN_IR_TYPE_U8:
+        fputs("i8", stream);
+        break;
     case CN_IR_TYPE_BOOL:
         fputs("i1", stream);
         break;
@@ -660,14 +710,10 @@ static void cn_llvm_emit_type(FILE *stream, const cn_ir_type *type) {
         fputc(']', stream);
         break;
     case CN_IR_TYPE_NAMED:
-        fprintf(
-            stream,
-            "%%cn_%.*s__%.*s",
-            (int)type->module_name.length,
-            type->module_name.data,
-            (int)type->name.length,
-            type->name.data
-        );
+        fputs("%cn_", stream);
+        cn_llvm_emit_identifier_part(stream, type->module_name);
+        fputs("__", stream);
+        cn_llvm_emit_identifier_part(stream, type->name);
         break;
     case CN_IR_TYPE_UNKNOWN:
         fputs("<unknown>", stream);
@@ -767,14 +813,10 @@ static void cn_llvm_emit_unreachable(cn_llvm_function_ctx *ctx) {
 }
 
 static void cn_llvm_emit_function_symbol(FILE *stream, cn_strview module_name, cn_strview function_name) {
-    fprintf(
-        stream,
-        "@cn_%.*s__%.*s",
-        (int)module_name.length,
-        module_name.data,
-        (int)function_name.length,
-        function_name.data
-    );
+    fputs("@cn_", stream);
+    cn_llvm_emit_identifier_part(stream, module_name);
+    fputs("__", stream);
+    cn_llvm_emit_identifier_part(stream, function_name);
 }
 
 static int cn_llvm_emit_struct_field_gep(
@@ -892,6 +934,7 @@ static cn_llvm_value cn_llvm_emit_value_equality(
 ) {
     switch (type->kind) {
     case CN_IR_TYPE_INT:
+    case CN_IR_TYPE_U8:
     case CN_IR_TYPE_BOOL:
     case CN_IR_TYPE_PTR: {
         int reg_id = cn_llvm_next_temp(ctx);
@@ -1453,7 +1496,7 @@ static cn_llvm_value cn_llvm_emit_named_call(
 }
 
 static cn_llvm_value cn_llvm_lower_builtin_call(cn_llvm_function_ctx *ctx, cn_llvm_scope *scope, const cn_ir_expr *expression) {
-    cn_llvm_value arguments[3];
+    cn_llvm_value arguments[4];
 
     if (!cn_llvm_lower_builtin_arguments(ctx, scope, expression, arguments, CN_ARRAY_LEN(arguments))) {
         return cn_llvm_invalid_value(expression->type);
@@ -1537,6 +1580,14 @@ static cn_llvm_value cn_llvm_lower_builtin_call(cn_llvm_function_ctx *ctx, cn_ll
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_net_is_ipv4", arguments, 1);
     }
 
+    if (cn_llvm_call_matches(expression, "std.net", "accept")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_net_accept", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.net", "close")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_net_close", arguments, 1);
+    }
+
     if (cn_llvm_call_matches(expression, "std.env", "has")) {
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_env_has", arguments, 1);
     }
@@ -1613,6 +1664,34 @@ static cn_llvm_value cn_llvm_lower_builtin_call(cn_llvm_function_ctx *ctx, cn_ll
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_net_join_host_port", arguments, 2);
     }
 
+    if (cn_llvm_call_matches(expression, "std.net", "tcp_connect")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_net_tcp_connect", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.net", "tcp_listen")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_net_tcp_listen", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.net", "udp_bind")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_net_udp_bind", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.net", "send")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_net_send", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.net", "recv")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_net_recv", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.net", "udp_recv_from")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_net_udp_recv_from", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.net", "udp_send_to")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_net_udp_send_to", arguments, 4);
+    }
+
     if (cn_llvm_call_matches(expression, "std.path", "file_name")) {
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_path_file_name", arguments, 1);
     }
@@ -1643,6 +1722,18 @@ static cn_llvm_value cn_llvm_lower_builtin_call(cn_llvm_function_ctx *ctx, cn_ll
     case CN_IR_TYPE_INT:
         fputs("call void @cn_print_int(i64 ", ctx->emit->stream);
         break;
+    case CN_IR_TYPE_U8: {
+        int widened_reg_id = cn_llvm_next_temp(ctx);
+        cn_llvm_emit_reg(ctx->emit->stream, widened_reg_id);
+        fputs(" = zext i8 ", ctx->emit->stream);
+        cn_llvm_emit_value_ref(ctx->emit->stream, arguments[0]);
+        fputs(" to i64\n", ctx->emit->stream);
+        cn_llvm_emit_indent(ctx->emit->stream);
+        fputs("call void @cn_print_int(i64 ", ctx->emit->stream);
+        cn_llvm_emit_reg(ctx->emit->stream, widened_reg_id);
+        fputs(")\n", ctx->emit->stream);
+        return cn_llvm_void_value(expression->type);
+    }
     case CN_IR_TYPE_BOOL:
         fputs("call void @cn_print_bool(i1 ", ctx->emit->stream);
         break;
@@ -1800,31 +1891,35 @@ static cn_llvm_value cn_llvm_lower_expression(cn_llvm_function_ctx *ctx, cn_llvm
 
         switch (expression->data.binary.op) {
         case CN_IR_BINARY_ADD:
-            fputs(" = add i64 ", ctx->emit->stream);
+            fputs(" = add ", ctx->emit->stream);
+            cn_llvm_emit_type(ctx->emit->stream, left.type);
+            fputc(' ', ctx->emit->stream);
             break;
         case CN_IR_BINARY_SUB:
-            fputs(" = sub i64 ", ctx->emit->stream);
+            fputs(" = sub ", ctx->emit->stream);
+            cn_llvm_emit_type(ctx->emit->stream, left.type);
+            fputc(' ', ctx->emit->stream);
             break;
         case CN_IR_BINARY_MUL:
-            fputs(" = mul i64 ", ctx->emit->stream);
+            fputs(" = mul ", ctx->emit->stream);
+            cn_llvm_emit_type(ctx->emit->stream, left.type);
+            fputc(' ', ctx->emit->stream);
             break;
         case CN_IR_BINARY_DIV:
-            fputs(" = sdiv i64 ", ctx->emit->stream);
+            fputs(" = sdiv ", ctx->emit->stream);
+            cn_llvm_emit_type(ctx->emit->stream, left.type);
+            fputc(' ', ctx->emit->stream);
             break;
         case CN_IR_BINARY_EQUAL:
         case CN_IR_BINARY_NOT_EQUAL:
             break;
         case CN_IR_BINARY_LESS:
-            fputs(" = icmp slt i64 ", ctx->emit->stream);
-            break;
         case CN_IR_BINARY_LESS_EQUAL:
-            fputs(" = icmp sle i64 ", ctx->emit->stream);
-            break;
         case CN_IR_BINARY_GREATER:
-            fputs(" = icmp sgt i64 ", ctx->emit->stream);
-            break;
         case CN_IR_BINARY_GREATER_EQUAL:
-            fputs(" = icmp sge i64 ", ctx->emit->stream);
+            fputs(cn_llvm_compare_prefix(expression->data.binary.op, left.type->kind), ctx->emit->stream);
+            cn_llvm_emit_type(ctx->emit->stream, left.type);
+            fputc(' ', ctx->emit->stream);
             break;
         case CN_IR_BINARY_AND:
         case CN_IR_BINARY_OR:
@@ -2350,14 +2445,17 @@ static void cn_llvm_emit_struct_definitions(const cn_ir_program *program, FILE *
         const cn_ir_module *module = program->modules.items[module_index];
         for (size_t struct_index = 0; struct_index < module->structs.count; ++struct_index) {
             const cn_ir_struct *struct_decl = module->structs.items[struct_index];
+            if (cn_llvm_is_runtime_owned_struct(struct_decl->module_name, struct_decl->name)) {
+                continue;
+            }
             fprintf(
                 stream,
-                "%%cn_%.*s__%.*s = type { ",
-                (int)struct_decl->module_name.length,
-                struct_decl->module_name.data,
-                (int)struct_decl->name.length,
-                struct_decl->name.data
+                "%%cn_"
             );
+            cn_llvm_emit_identifier_part(stream, struct_decl->module_name);
+            fputs("__", stream);
+            cn_llvm_emit_identifier_part(stream, struct_decl->name);
+            fputs(" = type { ", stream);
             for (size_t field_index = 0; field_index < struct_decl->fields.count; ++field_index) {
                 if (field_index > 0) {
                     fputs(", ", stream);
@@ -2412,11 +2510,13 @@ static bool cn_llvm_emit_entry_wrapper(cn_llvm_emit_ctx *ctx) {
         return false;
     }
 
-    if (entry->return_type->kind != CN_IR_TYPE_INT && entry->return_type->kind != CN_IR_TYPE_VOID) {
+    if (entry->return_type->kind != CN_IR_TYPE_INT &&
+        entry->return_type->kind != CN_IR_TYPE_U8 &&
+        entry->return_type->kind != CN_IR_TYPE_VOID) {
         cn_llvm_emit_unsupported_feature(
             ctx->diagnostics,
             entry->offset,
-            "main functions that do not return int or void"
+            "main functions that do not return int, u8, or void"
         );
         return false;
     }
@@ -2428,6 +2528,12 @@ static bool cn_llvm_emit_entry_wrapper(cn_llvm_emit_ctx *ctx) {
         cn_llvm_emit_function_symbol(ctx->stream, entry->module_name, entry->name);
         fputs("()\n", ctx->stream);
         fputs("  ret i32 0\n", ctx->stream);
+    } else if (entry->return_type->kind == CN_IR_TYPE_U8) {
+        fputs("  %entry.result = call i8 ", ctx->stream);
+        cn_llvm_emit_function_symbol(ctx->stream, entry->module_name, entry->name);
+        fputs("()\n", ctx->stream);
+        fputs("  %entry.status = zext i8 %entry.result to i32\n", ctx->stream);
+        fputs("  ret i32 %entry.status\n", ctx->stream);
     } else {
         fputs("  %entry.result = call i64 ", ctx->stream);
         cn_llvm_emit_function_symbol(ctx->stream, entry->module_name, entry->name);

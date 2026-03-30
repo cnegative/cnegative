@@ -1,0 +1,87 @@
+import std.net as net;
+import std.strings as strings;
+import std.env as env;
+import std.parse as parse;
+
+fn:int resolve_port() {
+    let raw:result str = env.get("CNEGATIVE_NET_TEST_PORT");
+    if raw.ok == false {
+        return 34567;
+    }
+
+    if raw.ok {
+        let parsed:result int = parse.to_int(raw.value);
+        free raw.value;
+        if parsed.ok {
+            return parsed.value;
+        }
+    }
+
+    return 34567;
+}
+
+fn:int main() {
+    let port:int = resolve_port();
+    let socket:result int = net.udp_bind("", 0);
+    if socket.ok == false {
+        return 1;
+    }
+
+    if socket.ok {
+        let sent:result int = net.udp_send_to(socket.value, "127.0.0.1", port, "ping");
+        if sent.ok == false {
+            let close_socket_on_send_error:result bool = net.close(socket.value);
+            if close_socket_on_send_error.ok == false {
+                return 2;
+            }
+
+            return 3;
+        }
+
+        let reply:result net.UdpPacket = net.udp_recv_from(socket.value, 64);
+        if reply.ok == false {
+            let close_socket_on_recv_error:result bool = net.close(socket.value);
+            if close_socket_on_recv_error.ok == false {
+                return 4;
+            }
+
+            return 5;
+        }
+
+        if reply.ok {
+            if strings.eq(reply.value.data, "pong") == false {
+                free reply.value.host;
+                free reply.value.data;
+                let close_socket_on_message_error:result bool = net.close(socket.value);
+                if close_socket_on_message_error.ok == false {
+                    return 6;
+                }
+
+                return 7;
+            }
+
+            if net.is_ipv4(reply.value.host) == false {
+                free reply.value.host;
+                free reply.value.data;
+                let close_socket_on_host_error:result bool = net.close(socket.value);
+                if close_socket_on_host_error.ok == false {
+                    return 8;
+                }
+
+                return 9;
+            }
+
+            free reply.value.host;
+            free reply.value.data;
+        }
+
+        let close_socket:result bool = net.close(socket.value);
+        if close_socket.ok == false {
+            return 10;
+        }
+
+        return 0;
+    }
+
+    return 11;
+}

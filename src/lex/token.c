@@ -26,6 +26,8 @@ const char *cn_token_kind_name(cn_token_kind kind) {
     case CN_TOKEN_IMPORT: return "import";
     case CN_TOKEN_AS: return "as";
     case CN_TOKEN_INT: return "int";
+    case CN_TOKEN_U8: return "u8";
+    case CN_TOKEN_BYTE: return "byte";
     case CN_TOKEN_BOOL: return "bool";
     case CN_TOKEN_STR: return "str";
     case CN_TOKEN_VOID: return "void";

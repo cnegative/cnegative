@@ -194,6 +194,9 @@ static cn_type_ref *cn_parse_type_base(cn_parser *parser) {
     if (cn_parser_match(parser, CN_TOKEN_INT)) {
         return cn_type_create(parser->allocator, CN_TYPE_INT, token->lexeme, NULL, token->offset);
     }
+    if (cn_parser_match(parser, CN_TOKEN_U8) || cn_parser_match(parser, CN_TOKEN_BYTE)) {
+        return cn_type_create(parser->allocator, CN_TYPE_U8, token->lexeme, NULL, token->offset);
+    }
     if (cn_parser_match(parser, CN_TOKEN_BOOL)) {
         return cn_type_create(parser->allocator, CN_TYPE_BOOL, token->lexeme, NULL, token->offset);
     }

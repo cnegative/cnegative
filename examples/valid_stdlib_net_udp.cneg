@@ -1,0 +1,60 @@
+import std.net as net;
+import std.strings as strings;
+
+fn:int send_demo(socket:int) {
+    let sent:result int = net.udp_send_to(socket, "127.0.0.1", 34567, "ping");
+    if sent.ok {
+        return 0;
+    }
+
+    return 1;
+}
+
+fn:int receive_demo(socket:int) {
+    let packet:result net.UdpPacket = net.udp_recv_from(socket, 64);
+    if packet.ok {
+        let endpoint:str = net.join_host_port(packet.value.host, packet.value.port);
+        if strings.eq(packet.value.data, "") {
+            free endpoint;
+            free packet.value.host;
+            free packet.value.data;
+            return 1;
+        }
+
+        free endpoint;
+        free packet.value.host;
+        free packet.value.data;
+        return 0;
+    }
+
+    return 1;
+}
+
+fn:int bind_demo() {
+    let socket:result int = net.udp_bind("127.0.0.1", 0);
+    if socket.ok {
+        let closed:result bool = net.close(socket.value);
+        if closed.ok {
+            return 0;
+        }
+
+        return 3;
+    }
+
+    return 4;
+}
+
+fn:int main() {
+    if net.is_ipv4("127.0.0.1") == false {
+        return 1;
+    }
+
+    let endpoint:str = net.join_host_port("127.0.0.1", 34567);
+    if strings.eq(endpoint, "127.0.0.1:34567") == false {
+        free endpoint;
+        return 2;
+    }
+
+    free endpoint;
+    return 0;
+}

@@ -26,6 +26,7 @@ static void *cn_ir_grow_items(cn_allocator *allocator, void *items, size_t item_
 static cn_ir_type_kind cn_ir_type_kind_from_ast(cn_type_kind kind) {
     switch (kind) {
     case CN_TYPE_INT: return CN_IR_TYPE_INT;
+    case CN_TYPE_U8: return CN_IR_TYPE_U8;
     case CN_TYPE_BOOL: return CN_IR_TYPE_BOOL;
     case CN_TYPE_STR: return CN_IR_TYPE_STR;
     case CN_TYPE_VOID: return CN_IR_TYPE_VOID;
@@ -95,6 +96,9 @@ void cn_ir_type_describe(const cn_ir_type *type, char *buffer, size_t buffer_siz
     switch (type->kind) {
     case CN_IR_TYPE_INT:
         snprintf(buffer, buffer_size, "int");
+        break;
+    case CN_IR_TYPE_U8:
+        snprintf(buffer, buffer_size, "u8");
         break;
     case CN_IR_TYPE_BOOL:
         snprintf(buffer, buffer_size, "bool");

@@ -5,10 +5,11 @@
 ## Current Properties
 
 - Independent IR node types separate from the parser AST.
+- Builtin primitive types currently include `int`, `u8`, `bool`, `str`, and `void`.
 - Module-level constant declarations lowered into canonical IR form.
 - Canonical module-qualified function and struct names in lowered output.
 - Canonical module-qualified public constants in lowered output.
-- Builtin stdlib calls preserved as canonical module-qualified builtin targets such as `std.math.clamp(...)`, `std.strings.concat(...)`, `std.io.write_line(...)`, `std.time.now_ms(...)`, `std.env.get(...)`, `std.path.extension(...)`, `std.fs.file_size(...)`, `std.net.join_host_port(...)`, and `std.process.platform(...)`.
+- Builtin stdlib calls preserved as canonical module-qualified builtin targets such as `std.math.clamp(...)`, `std.strings.concat(...)`, `std.io.write_line(...)`, `std.time.now_ms(...)`, `std.env.get(...)`, `std.path.extension(...)`, `std.fs.file_size(...)`, `std.net.tcp_connect(...)`, `std.net.udp_recv_from(...)`, and `std.process.platform(...)`.
 - Explicit return statements preserved from source.
 - Structured control flow preserved for `if`, `while`, `loop`, and range `for`.
 - Simple optimization passes run before later backend stages.
@@ -48,6 +49,14 @@ let env_value:result str = std.env.get("PATH");
 let path_value:str = std.path.join("build", "demo.txt");
 let cwd:result str = std.fs.cwd();
 let endpoint:str = std.net.join_host_port("127.0.0.1", 8080);
+let socket:result int = std.net.tcp_connect("127.0.0.1", 34567);
+if socket.ok {
+    let payload:result str = std.net.recv(socket.value, 32);
+}
+let udp_socket:result int = std.net.udp_bind("", 34567);
+if udp_socket.ok {
+    let packet:result std.net.UdpPacket = std.net.udp_recv_from(udp_socket.value, 64);
+}
 let bounded:int = std.math.clamp(99, 0, 7);
 let platform:str = std.process.platform();
 ```

@@ -59,8 +59,11 @@ cn_verify_llvm_ir() {
 ./build/cnegc check examples/valid_stdlib_io_read.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_stdlib_time_dirs.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_stdlib_net_fs.cneg >"$tmp_valid"
+./build/cnegc check examples/valid_stdlib_net_tcp.cneg >"$tmp_valid"
+./build/cnegc check examples/valid_stdlib_net_udp.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_stdlib_math_process.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_stdlib_path_fs_extra.cneg >"$tmp_valid"
+./build/cnegc check examples/valid_u8.cneg >"$tmp_valid"
 
 ./build/cnegc bench-lexer examples/valid_basic.cneg 5 >"$tmp_valid"
 if ! grep -q 'tokens_per_second:' "$tmp_valid"; then
@@ -171,6 +174,45 @@ if ! grep -q 'std.fs.file_size' "$tmp_ir"; then
     exit 1
 fi
 
+./build/cnegc ir examples/valid_stdlib_net_tcp.cneg >"$tmp_ir"
+if ! grep -q 'std.net.tcp_connect' "$tmp_ir"; then
+    printf 'expected std.net.tcp_connect builtin lowering in typed IR for valid_stdlib_net_tcp.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.net.tcp_listen' "$tmp_ir"; then
+    printf 'expected std.net.tcp_listen builtin lowering in typed IR for valid_stdlib_net_tcp.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.net.recv' "$tmp_ir"; then
+    printf 'expected std.net.recv builtin lowering in typed IR for valid_stdlib_net_tcp.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+
+./build/cnegc ir examples/valid_stdlib_net_udp.cneg >"$tmp_ir"
+if ! grep -q 'std.net.udp_bind' "$tmp_ir"; then
+    printf 'expected std.net.udp_bind builtin lowering in typed IR for valid_stdlib_net_udp.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.net.udp_send_to' "$tmp_ir"; then
+    printf 'expected std.net.udp_send_to builtin lowering in typed IR for valid_stdlib_net_udp.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.net.udp_recv_from' "$tmp_ir"; then
+    printf 'expected std.net.udp_recv_from builtin lowering in typed IR for valid_stdlib_net_udp.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'result std.net.UdpPacket' "$tmp_ir"; then
+    printf 'expected std.net.UdpPacket result lowering in typed IR for valid_stdlib_net_udp.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+
 ./build/cnegc ir examples/valid_stdlib_math_process.cneg >"$tmp_ir"
 if ! grep -q 'std.math.clamp' "$tmp_ir"; then
     printf 'expected std.math.clamp builtin lowering in typed IR for valid_stdlib_math_process.cneg\n'
@@ -191,6 +233,23 @@ if ! grep -q 'std.fs.copy' "$tmp_ir"; then
 fi
 if ! grep -q 'std.path.extension' "$tmp_ir"; then
     printf 'expected std.path.extension builtin lowering in typed IR for valid_stdlib_path_fs_extra.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+
+./build/cnegc ir examples/valid_u8.cneg >"$tmp_ir"
+if ! grep -q 'fn valid_u8.main() -> u8' "$tmp_ir"; then
+    printf 'expected u8 main signature in typed IR for valid_u8.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'let alias:u8 = 200;' "$tmp_ir"; then
+    printf 'expected byte alias canonicalized to u8 in typed IR for valid_u8.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'packet.payload\[1\] > packet.payload\[0\]' "$tmp_ir"; then
+    printf 'expected u8 comparison in typed IR for valid_u8.cneg\n'
     cat "$tmp_ir"
     exit 1
 fi
@@ -374,6 +433,57 @@ if ! grep -q '@cn_fs_cwd' "$tmp_ll"; then
 fi
 cn_verify_llvm_ir "$tmp_ll" "$tmp_bc"
 
+./build/cnegc llvm-ir examples/valid_stdlib_net_tcp.cneg >"$tmp_ll"
+if ! grep -q '@cn_net_tcp_connect' "$tmp_ll"; then
+    printf 'expected std.net tcp_connect lowering in LLVM IR for valid_stdlib_net_tcp.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_net_tcp_listen' "$tmp_ll"; then
+    printf 'expected std.net tcp_listen lowering in LLVM IR for valid_stdlib_net_tcp.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_net_send' "$tmp_ll"; then
+    printf 'expected std.net send lowering in LLVM IR for valid_stdlib_net_tcp.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_net_recv' "$tmp_ll"; then
+    printf 'expected std.net recv lowering in LLVM IR for valid_stdlib_net_tcp.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_net_accept' "$tmp_ll"; then
+    printf 'expected std.net accept lowering in LLVM IR for valid_stdlib_net_tcp.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+cn_verify_llvm_ir "$tmp_ll" "$tmp_bc"
+
+./build/cnegc llvm-ir examples/valid_stdlib_net_udp.cneg >"$tmp_ll"
+if ! grep -q '%cn_std_x2E_net__UdpPacket = type' "$tmp_ll"; then
+    printf 'expected std.net.UdpPacket struct lowering in LLVM IR for valid_stdlib_net_udp.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_net_udp_bind' "$tmp_ll"; then
+    printf 'expected std.net udp_bind lowering in LLVM IR for valid_stdlib_net_udp.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_net_udp_send_to' "$tmp_ll"; then
+    printf 'expected std.net udp_send_to lowering in LLVM IR for valid_stdlib_net_udp.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_net_udp_recv_from' "$tmp_ll"; then
+    printf 'expected std.net udp_recv_from lowering in LLVM IR for valid_stdlib_net_udp.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+cn_verify_llvm_ir "$tmp_ll" "$tmp_bc"
+
 ./build/cnegc llvm-ir examples/valid_stdlib_math_process.cneg >"$tmp_ll"
 if ! grep -q '@cn_math_clamp' "$tmp_ll"; then
     printf 'expected std.math clamp lowering in LLVM IR for valid_stdlib_math_process.cneg\n'
@@ -410,6 +520,24 @@ if ! grep -q '@cn_path_stem' "$tmp_ll"; then
 fi
 if ! grep -q '@cn_path_is_absolute' "$tmp_ll"; then
     printf 'expected std.path is_absolute lowering in LLVM IR for valid_stdlib_path_fs_extra.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+cn_verify_llvm_ir "$tmp_ll" "$tmp_bc"
+
+./build/cnegc llvm-ir examples/valid_u8.cneg >"$tmp_ll"
+if ! grep -q 'alloca i8' "$tmp_ll"; then
+    printf 'expected u8 stack storage lowering in LLVM IR for valid_u8.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q 'icmp ugt i8' "$tmp_ll"; then
+    printf 'expected unsigned u8 comparison lowering in LLVM IR for valid_u8.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q 'zext i8' "$tmp_ll"; then
+    printf 'expected u8 widening in LLVM IR for valid_u8.cneg\n'
     cat "$tmp_ll"
     exit 1
 fi
@@ -532,6 +660,22 @@ fi
 
 if [ "$(grep -c "expected ';'" "$tmp_invalid")" -lt 4 ]; then
     printf 'expected parser recovery to report multiple semicolon errors in invalid_parse_recovery.cneg output\n'
+    cat "$tmp_invalid"
+    exit 1
+fi
+
+if ./build/cnegc check examples/invalid_u8_range.cneg >"$tmp_invalid" 2>&1; then
+    printf 'expected invalid_u8_range.cneg to fail\n'
+    exit 1
+fi
+
+if ! grep -q 'u8 literal out of range' "$tmp_invalid"; then
+    printf 'expected u8 range diagnostic in invalid_u8_range.cneg output\n'
+    cat "$tmp_invalid"
+    exit 1
+fi
+if ! grep -q 'E3028' "$tmp_invalid"; then
+    printf 'expected E3028 in invalid_u8_range.cneg output\n'
     cat "$tmp_invalid"
     exit 1
 fi
@@ -736,6 +880,28 @@ if [ -f build/std_net_fs.txt ]; then
     exit 1
 fi
 
+./build/cnegc build examples/valid_stdlib_net_tcp.cneg "$tmp_bin" >"$tmp_valid"
+set +e
+"$tmp_bin" >"$tmp_run"
+status=$?
+set -e
+if [ "$status" -ne 0 ]; then
+    printf 'expected valid_stdlib_net_tcp binary to exit 0, got %d\n' "$status"
+    cat "$tmp_run"
+    exit 1
+fi
+
+./build/cnegc build examples/valid_stdlib_net_udp.cneg "$tmp_bin" >"$tmp_valid"
+set +e
+"$tmp_bin" >"$tmp_run"
+status=$?
+set -e
+if [ "$status" -ne 0 ]; then
+    printf 'expected valid_stdlib_net_udp binary to exit 0, got %d\n' "$status"
+    cat "$tmp_run"
+    exit 1
+fi
+
 ./build/cnegc build examples/valid_stdlib_math_process.cneg "$tmp_bin" >"$tmp_valid"
 set +e
 "$tmp_bin" >"$tmp_run"
@@ -765,5 +931,21 @@ if [ "$status" -ne 0 ]; then
 fi
 if [ -f build/path_extra.txt ] || [ -f build/path_extra_copy.txt ] || [ -f build/path_extra_moved.txt ]; then
     printf 'expected valid_stdlib_path_fs_extra binary to clean up path/fs demo files\n'
+    exit 1
+fi
+
+./build/cnegc build examples/valid_u8.cneg "$tmp_bin" >"$tmp_valid"
+set +e
+"$tmp_bin" >"$tmp_run"
+status=$?
+set -e
+if [ "$status" -ne 0 ]; then
+    printf 'expected valid_u8 binary to exit 0, got %d\n' "$status"
+    cat "$tmp_run"
+    exit 1
+fi
+if ! grep -q '^200$' "$tmp_run"; then
+    printf 'expected valid_u8 binary to print 200\n'
+    cat "$tmp_run"
     exit 1
 fi

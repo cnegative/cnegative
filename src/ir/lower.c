@@ -655,7 +655,11 @@ static cn_ir_expr *cn_ir_lower_expression(cn_ir_lower_ctx *ctx, cn_ir_scope *sco
     case CN_EXPR_INT:
         ir_expression = cn_ir_expr_create(ctx->allocator, CN_IR_EXPR_INT, expression->offset);
         ir_expression->data.int_value = expression->data.int_value;
-        ir_expression->type = cn_ir_make_builtin_type(ctx->allocator, CN_IR_TYPE_INT);
+        if (expected != NULL && expected->kind == CN_IR_TYPE_U8) {
+            ir_expression->type = cn_ir_make_builtin_type(ctx->allocator, CN_IR_TYPE_U8);
+        } else {
+            ir_expression->type = cn_ir_make_builtin_type(ctx->allocator, CN_IR_TYPE_INT);
+        }
         return ir_expression;
     case CN_EXPR_BOOL:
         ir_expression = cn_ir_expr_create(ctx->allocator, CN_IR_EXPR_BOOL, expression->offset);
@@ -1065,8 +1069,10 @@ static cn_ir_module *cn_ir_lower_module(cn_ir_lower_ctx *ctx) {
         cn_ir_module_push_struct(ir_module, ctx->allocator, cn_ir_lower_struct(ctx, ctx->module->program->structs[i]));
     }
 
-    for (size_t i = 0; i < ctx->module->program->function_count; ++i) {
-        cn_ir_module_push_function(ir_module, ctx->allocator, cn_ir_lower_function(ctx, ctx->module->program->functions[i]));
+    if (!ctx->module->is_builtin_stdlib) {
+        for (size_t i = 0; i < ctx->module->program->function_count; ++i) {
+            cn_ir_module_push_function(ir_module, ctx->allocator, cn_ir_lower_function(ctx, ctx->module->program->functions[i]));
+        }
     }
 
     return ir_module;
@@ -1082,7 +1088,13 @@ bool cn_ir_lower_project(cn_allocator *allocator, const cn_project *project, cn_
     cn_ir_program *program = cn_ir_program_create(allocator);
     for (size_t module_index = 0; module_index < project->module_count; ++module_index) {
         ctx.module = project->modules[module_index];
-        if (ctx.module->program == NULL || ctx.module->is_builtin_stdlib) {
+        if (ctx.module->program == NULL) {
+            continue;
+        }
+
+        if (ctx.module->is_builtin_stdlib &&
+            ctx.module->program->const_count == 0 &&
+            ctx.module->program->struct_count == 0) {
             continue;
         }
 

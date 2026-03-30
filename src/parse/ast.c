@@ -281,6 +281,9 @@ void cn_type_describe(const cn_type_ref *type, char *buffer, size_t buffer_size)
     case CN_TYPE_INT:
         snprintf(buffer, buffer_size, "int");
         break;
+    case CN_TYPE_U8:
+        snprintf(buffer, buffer_size, "u8");
+        break;
     case CN_TYPE_BOOL:
         snprintf(buffer, buffer_size, "bool");
         break;

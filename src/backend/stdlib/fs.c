@@ -1,0 +1,343 @@
+#include "cnegative/llvm_runtime.h"
+
+void cn_llvm_emit_runtime_fs(FILE *stream) {
+    fputs(
+        "define private i1 @cn_fs_exists(ptr %path) {\n"
+        "entry:\n"
+        "  %mode = getelementptr inbounds [3 x i8], ptr @.cn.mode.read, i64 0, i64 0\n"
+        "  %file = call ptr @fopen(ptr %path, ptr %mode)\n"
+        "  %exists = icmp ne ptr %file, null\n"
+        "  br i1 %exists, label %close, label %missing\n"
+        "close:\n"
+        "  %closed = call i32 @fclose(ptr %file)\n"
+        "  ret i1 true\n"
+        "missing:\n"
+        "  ret i1 false\n"
+        "}\n\n",
+        stream
+    );
+    fputs(
+        "define private { i1, ptr } @cn_fs_cwd() {\n"
+        "entry:\n"
+        "  %buffer = call ptr @malloc(i64 4096)\n"
+        "  %has.buffer = icmp ne ptr %buffer, null\n"
+        "  br i1 %has.buffer, label %read.cwd, label %return.err\n"
+        "read.cwd:\n",
+        stream
+    );
+#ifdef _WIN32
+    fputs("  %cwd = call ptr @_getcwd(ptr %buffer, i32 4096)\n", stream);
+#else
+    fputs("  %cwd = call ptr @getcwd(ptr %buffer, i64 4096)\n", stream);
+#endif
+    fputs(
+        "  %has.cwd = icmp ne ptr %cwd, null\n"
+        "  br i1 %has.cwd, label %return.ok, label %free.err\n"
+        "return.ok:\n"
+        "  call void @cn_track_str(ptr %buffer)\n"
+        "  %ok = insertvalue { i1, ptr } zeroinitializer, i1 true, 0\n"
+        "  %value.ok = insertvalue { i1, ptr } %ok, ptr %buffer, 1\n"
+        "  ret { i1, ptr } %value.ok\n"
+        "free.err:\n"
+        "  call void @free(ptr %buffer)\n"
+        "  ret { i1, ptr } zeroinitializer\n"
+        "return.err:\n"
+        "  ret { i1, ptr } zeroinitializer\n"
+        "}\n\n",
+        stream
+    );
+#ifdef _WIN32
+    fputs(
+        "define private { i1, i1 } @cn_fs_create_dir(ptr %path) {\n"
+        "entry:\n"
+        "  %code = call i32 @_mkdir(ptr %path)\n"
+        "  %success = icmp eq i32 %code, 0\n"
+        "  br i1 %success, label %return.ok, label %return.err\n"
+        "return.ok:\n"
+        "  %ok = insertvalue { i1, i1 } zeroinitializer, i1 true, 0\n"
+        "  %value.ok = insertvalue { i1, i1 } %ok, i1 true, 1\n"
+        "  ret { i1, i1 } %value.ok\n"
+        "return.err:\n"
+        "  ret { i1, i1 } zeroinitializer\n"
+        "}\n\n",
+        stream
+    );
+    fputs(
+        "define private { i1, i1 } @cn_fs_remove_dir(ptr %path) {\n"
+        "entry:\n"
+        "  %code = call i32 @_rmdir(ptr %path)\n"
+        "  %success = icmp eq i32 %code, 0\n"
+        "  br i1 %success, label %return.ok, label %return.err\n"
+        "return.ok:\n"
+        "  %ok = insertvalue { i1, i1 } zeroinitializer, i1 true, 0\n"
+        "  %value.ok = insertvalue { i1, i1 } %ok, i1 true, 1\n"
+        "  ret { i1, i1 } %value.ok\n"
+        "return.err:\n"
+        "  ret { i1, i1 } zeroinitializer\n"
+        "}\n\n",
+        stream
+    );
+#else
+    fputs(
+        "define private { i1, i1 } @cn_fs_create_dir(ptr %path) {\n"
+        "entry:\n"
+        "  %code = call i32 @mkdir(ptr %path, i32 511)\n"
+        "  %success = icmp eq i32 %code, 0\n"
+        "  br i1 %success, label %return.ok, label %return.err\n"
+        "return.ok:\n"
+        "  %ok = insertvalue { i1, i1 } zeroinitializer, i1 true, 0\n"
+        "  %value.ok = insertvalue { i1, i1 } %ok, i1 true, 1\n"
+        "  ret { i1, i1 } %value.ok\n"
+        "return.err:\n"
+        "  ret { i1, i1 } zeroinitializer\n"
+        "}\n\n",
+        stream
+    );
+    fputs(
+        "define private { i1, i1 } @cn_fs_remove_dir(ptr %path) {\n"
+        "entry:\n"
+        "  %code = call i32 @rmdir(ptr %path)\n"
+        "  %success = icmp eq i32 %code, 0\n"
+        "  br i1 %success, label %return.ok, label %return.err\n"
+        "return.ok:\n"
+        "  %ok = insertvalue { i1, i1 } zeroinitializer, i1 true, 0\n"
+        "  %value.ok = insertvalue { i1, i1 } %ok, i1 true, 1\n"
+        "  ret { i1, i1 } %value.ok\n"
+        "return.err:\n"
+        "  ret { i1, i1 } zeroinitializer\n"
+        "}\n\n",
+        stream
+    );
+#endif
+    fputs(
+        "define private { i1, ptr } @cn_fs_read_text(ptr %path) {\n"
+        "entry:\n"
+        "  %mode = getelementptr inbounds [3 x i8], ptr @.cn.mode.read, i64 0, i64 0\n"
+        "  %file = call ptr @fopen(ptr %path, ptr %mode)\n"
+        "  %has.file = icmp ne ptr %file, null\n"
+        "  br i1 %has.file, label %alloc, label %return.err\n"
+        "alloc:\n"
+        "  %buffer = call ptr @malloc(i64 64)\n"
+        "  %has.buffer = icmp ne ptr %buffer, null\n"
+        "  br i1 %has.buffer, label %init, label %close.err\n"
+        "init:\n"
+        "  %buffer.slot = alloca ptr\n"
+        "  %length.slot = alloca i64\n"
+        "  %capacity.slot = alloca i64\n"
+        "  store ptr %buffer, ptr %buffer.slot\n"
+        "  store i64 0, ptr %length.slot\n"
+        "  store i64 64, ptr %capacity.slot\n"
+        "  br label %loop\n"
+        "loop:\n"
+        "  %ch = call i32 @fgetc(ptr %file)\n"
+        "  %is.eof = icmp eq i32 %ch, -1\n"
+        "  br i1 %is.eof, label %finish, label %ensure.capacity\n"
+        "ensure.capacity:\n"
+        "  %length = load i64, ptr %length.slot\n"
+        "  %capacity = load i64, ptr %capacity.slot\n"
+        "  %needed.base = add i64 %length, 1\n"
+        "  %needed = add i64 %needed.base, 1\n"
+        "  %has.space = icmp ule i64 %needed, %capacity\n"
+        "  br i1 %has.space, label %store.char, label %grow\n"
+        "grow:\n"
+        "  %new.capacity = mul i64 %capacity, 2\n"
+        "  %current.buffer = load ptr, ptr %buffer.slot\n"
+        "  %resized = call ptr @realloc(ptr %current.buffer, i64 %new.capacity)\n"
+        "  %has.resized = icmp ne ptr %resized, null\n"
+        "  br i1 %has.resized, label %grow.ok, label %free.err\n"
+        "grow.ok:\n"
+        "  store ptr %resized, ptr %buffer.slot\n"
+        "  store i64 %new.capacity, ptr %capacity.slot\n"
+        "  br label %store.char\n"
+        "store.char:\n"
+        "  %buffer.now = load ptr, ptr %buffer.slot\n"
+        "  %length.now = load i64, ptr %length.slot\n"
+        "  %char.ptr = getelementptr inbounds i8, ptr %buffer.now, i64 %length.now\n"
+        "  %char.byte = trunc i32 %ch to i8\n"
+        "  store i8 %char.byte, ptr %char.ptr\n"
+        "  %next.length = add i64 %length.now, 1\n"
+        "  store i64 %next.length, ptr %length.slot\n"
+        "  br label %loop\n"
+        "finish:\n"
+        "  %buffer.final = load ptr, ptr %buffer.slot\n"
+        "  %length.final = load i64, ptr %length.slot\n"
+        "  %end.ptr = getelementptr inbounds i8, ptr %buffer.final, i64 %length.final\n"
+        "  store i8 0, ptr %end.ptr\n"
+        "  %close.ok = call i32 @fclose(ptr %file)\n"
+        "  call void @cn_track_str(ptr %buffer.final)\n"
+        "  %ok = insertvalue { i1, ptr } zeroinitializer, i1 true, 0\n"
+        "  %value.ok = insertvalue { i1, ptr } %ok, ptr %buffer.final, 1\n"
+        "  ret { i1, ptr } %value.ok\n"
+        "free.err:\n"
+        "  %buffer.err = load ptr, ptr %buffer.slot\n"
+        "  call void @free(ptr %buffer.err)\n"
+        "  br label %close.err\n"
+        "close.err:\n"
+        "  %close.err.code = call i32 @fclose(ptr %file)\n"
+        "  ret { i1, ptr } zeroinitializer\n"
+        "return.err:\n"
+        "  ret { i1, ptr } zeroinitializer\n"
+        "}\n\n",
+        stream
+    );
+    fputs(
+        "define private { i1, i64 } @cn_fs_file_size(ptr %path) {\n"
+        "entry:\n"
+        "  %mode = getelementptr inbounds [3 x i8], ptr @.cn.mode.read, i64 0, i64 0\n"
+        "  %file = call ptr @fopen(ptr %path, ptr %mode)\n"
+        "  %has.file = icmp ne ptr %file, null\n"
+        "  br i1 %has.file, label %count.setup, label %return.err\n"
+        "count.setup:\n"
+        "  %count.slot = alloca i64\n"
+        "  store i64 0, ptr %count.slot\n"
+        "  br label %count.loop\n"
+        "count.loop:\n"
+        "  %ch = call i32 @fgetc(ptr %file)\n"
+        "  %is.eof = icmp eq i32 %ch, -1\n"
+        "  br i1 %is.eof, label %count.finish, label %count.next\n"
+        "count.next:\n"
+        "  %count = load i64, ptr %count.slot\n"
+        "  %next.count = add i64 %count, 1\n"
+        "  store i64 %next.count, ptr %count.slot\n"
+        "  br label %count.loop\n"
+        "count.finish:\n"
+        "  %close.code = call i32 @fclose(ptr %file)\n"
+        "  %closed.ok = icmp eq i32 %close.code, 0\n"
+        "  br i1 %closed.ok, label %return.ok, label %return.err\n"
+        "return.ok:\n"
+        "  %count.final = load i64, ptr %count.slot\n"
+        "  %ok = insertvalue { i1, i64 } zeroinitializer, i1 true, 0\n"
+        "  %value.ok = insertvalue { i1, i64 } %ok, i64 %count.final, 1\n"
+        "  ret { i1, i64 } %value.ok\n"
+        "return.err:\n"
+        "  ret { i1, i64 } zeroinitializer\n"
+        "}\n\n",
+        stream
+    );
+    fputs(
+        "define private { i1, i1 } @cn_fs_copy(ptr %from_path, ptr %to_path) {\n"
+        "entry:\n"
+        "  %read.mode = getelementptr inbounds [3 x i8], ptr @.cn.mode.read, i64 0, i64 0\n"
+        "  %src = call ptr @fopen(ptr %from_path, ptr %read.mode)\n"
+        "  %has.src = icmp ne ptr %src, null\n"
+        "  br i1 %has.src, label %open.dst, label %return.err\n"
+        "open.dst:\n"
+        "  %write.mode = getelementptr inbounds [3 x i8], ptr @.cn.mode.write, i64 0, i64 0\n"
+        "  %dst = call ptr @fopen(ptr %to_path, ptr %write.mode)\n"
+        "  %has.dst = icmp ne ptr %dst, null\n"
+        "  br i1 %has.dst, label %copy.setup, label %close.src.err\n"
+        "copy.setup:\n"
+        "  %byte.slot = alloca i8\n"
+        "  br label %copy.loop\n"
+        "copy.loop:\n"
+        "  %ch = call i32 @fgetc(ptr %src)\n"
+        "  %is.eof = icmp eq i32 %ch, -1\n"
+        "  br i1 %is.eof, label %copy.finish, label %copy.write\n"
+        "copy.write:\n"
+        "  %byte = trunc i32 %ch to i8\n"
+        "  store i8 %byte, ptr %byte.slot\n"
+        "  %written = call i64 @fwrite(ptr %byte.slot, i64 1, i64 1, ptr %dst)\n"
+        "  %write.ok = icmp eq i64 %written, 1\n"
+        "  br i1 %write.ok, label %copy.loop, label %close.both.err\n"
+        "copy.finish:\n"
+        "  %close.dst = call i32 @fclose(ptr %dst)\n"
+        "  %close.src = call i32 @fclose(ptr %src)\n"
+        "  %dst.ok = icmp eq i32 %close.dst, 0\n"
+        "  %src.ok = icmp eq i32 %close.src, 0\n"
+        "  %success = and i1 %dst.ok, %src.ok\n"
+        "  br i1 %success, label %return.ok, label %return.err\n"
+        "close.both.err:\n"
+        "  %close.dst.err = call i32 @fclose(ptr %dst)\n"
+        "  %close.src.after = call i32 @fclose(ptr %src)\n"
+        "  br label %return.err\n"
+        "close.src.err:\n"
+        "  %close.src.err.code = call i32 @fclose(ptr %src)\n"
+        "  br label %return.err\n"
+        "return.ok:\n"
+        "  %ok = insertvalue { i1, i1 } zeroinitializer, i1 true, 0\n"
+        "  %value.ok = insertvalue { i1, i1 } %ok, i1 true, 1\n"
+        "  ret { i1, i1 } %value.ok\n"
+        "return.err:\n"
+        "  ret { i1, i1 } zeroinitializer\n"
+        "}\n\n",
+        stream
+    );
+    fputs(
+        "define private { i1, i1 } @cn_fs_write_text(ptr %path, ptr %data) {\n"
+        "entry:\n"
+        "  %mode = getelementptr inbounds [3 x i8], ptr @.cn.mode.write, i64 0, i64 0\n"
+        "  %file = call ptr @fopen(ptr %path, ptr %mode)\n"
+        "  %has.file = icmp ne ptr %file, null\n"
+        "  br i1 %has.file, label %write, label %return.err\n"
+        "write:\n"
+        "  %length = call i64 @strlen(ptr %data)\n"
+        "  %written = call i64 @fwrite(ptr %data, i64 1, i64 %length, ptr %file)\n"
+        "  %close.code = call i32 @fclose(ptr %file)\n"
+        "  %all.written = icmp eq i64 %written, %length\n"
+        "  %closed.ok = icmp eq i32 %close.code, 0\n"
+        "  %success = and i1 %all.written, %closed.ok\n"
+        "  br i1 %success, label %return.ok, label %return.err\n"
+        "return.ok:\n"
+        "  %ok = insertvalue { i1, i1 } zeroinitializer, i1 true, 0\n"
+        "  %value.ok = insertvalue { i1, i1 } %ok, i1 true, 1\n"
+        "  ret { i1, i1 } %value.ok\n"
+        "return.err:\n"
+        "  ret { i1, i1 } zeroinitializer\n"
+        "}\n\n",
+        stream
+    );
+    fputs(
+        "define private { i1, i1 } @cn_fs_append_text(ptr %path, ptr %data) {\n"
+        "entry:\n"
+        "  %mode = getelementptr inbounds [3 x i8], ptr @.cn.mode.append, i64 0, i64 0\n"
+        "  %file = call ptr @fopen(ptr %path, ptr %mode)\n"
+        "  %has.file = icmp ne ptr %file, null\n"
+        "  br i1 %has.file, label %write, label %return.err\n"
+        "write:\n"
+        "  %length = call i64 @strlen(ptr %data)\n"
+        "  %written = call i64 @fwrite(ptr %data, i64 1, i64 %length, ptr %file)\n"
+        "  %close.code = call i32 @fclose(ptr %file)\n"
+        "  %all.written = icmp eq i64 %written, %length\n"
+        "  %closed.ok = icmp eq i32 %close.code, 0\n"
+        "  %success = and i1 %all.written, %closed.ok\n"
+        "  br i1 %success, label %return.ok, label %return.err\n"
+        "return.ok:\n"
+        "  %ok = insertvalue { i1, i1 } zeroinitializer, i1 true, 0\n"
+        "  %value.ok = insertvalue { i1, i1 } %ok, i1 true, 1\n"
+        "  ret { i1, i1 } %value.ok\n"
+        "return.err:\n"
+        "  ret { i1, i1 } zeroinitializer\n"
+        "}\n\n",
+        stream
+    );
+    fputs(
+        "define private { i1, i1 } @cn_fs_rename(ptr %from_path, ptr %to_path) {\n"
+        "entry:\n"
+        "  %code = call i32 @rename(ptr %from_path, ptr %to_path)\n"
+        "  %success = icmp eq i32 %code, 0\n"
+        "  br i1 %success, label %return.ok, label %return.err\n"
+        "return.ok:\n"
+        "  %ok = insertvalue { i1, i1 } zeroinitializer, i1 true, 0\n"
+        "  %value.ok = insertvalue { i1, i1 } %ok, i1 true, 1\n"
+        "  ret { i1, i1 } %value.ok\n"
+        "return.err:\n"
+        "  ret { i1, i1 } zeroinitializer\n"
+        "}\n\n",
+        stream
+    );
+    fputs(
+        "define private { i1, i1 } @cn_fs_remove(ptr %path) {\n"
+        "entry:\n"
+        "  %code = call i32 @remove(ptr %path)\n"
+        "  %success = icmp eq i32 %code, 0\n"
+        "  br i1 %success, label %return.ok, label %return.err\n"
+        "return.ok:\n"
+        "  %ok = insertvalue { i1, i1 } zeroinitializer, i1 true, 0\n"
+        "  %value.ok = insertvalue { i1, i1 } %ok, i1 true, 1\n"
+        "  ret { i1, i1 } %value.ok\n"
+        "return.err:\n"
+        "  ret { i1, i1 } zeroinitializer\n"
+        "}\n\n",
+        stream
+    );
+}

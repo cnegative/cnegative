@@ -9,6 +9,7 @@
 
 typedef enum cn_ir_type_kind {
     CN_IR_TYPE_INT,
+    CN_IR_TYPE_U8,
     CN_IR_TYPE_BOOL,
     CN_IR_TYPE_STR,
     CN_IR_TYPE_VOID,

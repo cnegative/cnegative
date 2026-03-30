@@ -1,0 +1,88 @@
+import std.net as net;
+import std.strings as strings;
+
+fn:int connect_demo() {
+    let socket:result int = net.tcp_connect("127.0.0.1", 34567);
+    if socket.ok {
+        let sent:result int = net.send(socket.value, "ping");
+        if sent.ok == false {
+            let close_socket_on_send_error:result bool = net.close(socket.value);
+            if close_socket_on_send_error.ok == false {
+                return 2;
+            }
+            return 3;
+        }
+
+        let received:result str = net.recv(socket.value, 32);
+        if received.ok == false {
+            let close_socket_on_recv_error:result bool = net.close(socket.value);
+            if close_socket_on_recv_error.ok == false {
+                return 4;
+            }
+            return 5;
+        }
+
+        if received.ok {
+            free received.value;
+        }
+
+        let close_socket:result bool = net.close(socket.value);
+        if close_socket.ok == false {
+            return 6;
+        }
+
+        return 0;
+    }
+
+    return 1;
+}
+
+fn:int listen_demo() {
+    let listener:result int = net.tcp_listen("127.0.0.1", 34567);
+    if listener.ok {
+        let client:result int = net.accept(listener.value);
+        if client.ok {
+            let message:result str = net.recv(client.value, 32);
+            if message.ok {
+                free message.value;
+            }
+
+            let close_client:result bool = net.close(client.value);
+            if close_client.ok == false {
+                let close_listener_on_client_error:result bool = net.close(listener.value);
+                if close_listener_on_client_error.ok == false {
+                    return 2;
+                }
+                return 3;
+            }
+        }
+
+        let close_listener:result bool = net.close(listener.value);
+        if close_listener.ok == false {
+            return 4;
+        }
+
+        if client.ok == false {
+            return 5;
+        }
+
+        return 0;
+    }
+
+    return 1;
+}
+
+fn:int main() {
+    if net.is_ipv4("127.0.0.1") == false {
+        return 1;
+    }
+
+    let endpoint:str = net.join_host_port("localhost", 34567);
+    if strings.eq(endpoint, "localhost:34567") == false {
+        free endpoint;
+        return 2;
+    }
+
+    free endpoint;
+    return 0;
+}

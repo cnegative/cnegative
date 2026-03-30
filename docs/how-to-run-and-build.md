@@ -54,6 +54,10 @@ To run the full test suite, you also need:
 
 `llvm-as-18` or `llvm-as` is optional. The smoke tests use it when available and otherwise fall back to `clang -c -x ir`.
 
+The optional blocking TCP and UDP integration tests additionally need:
+
+- `python3`
+
 ### Build With `make`
 
 ```sh
@@ -70,6 +74,18 @@ Run the tests:
 
 ```sh
 make test
+```
+
+Run the optional blocking TCP integration test:
+
+```sh
+make net-test
+```
+
+Run the optional blocking UDP integration test:
+
+```sh
+make udp-test
 ```
 
 ### Build With CMake
@@ -89,6 +105,13 @@ Run the tests:
 
 ```sh
 ctest --test-dir out --output-on-failure
+```
+
+If Python 3 is available, you can also run the optional network integration targets:
+
+```sh
+cmake --build out --target net-test
+cmake --build out --target udp-test
 ```
 
 ## Use `cnegc`

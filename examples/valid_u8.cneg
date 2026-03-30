@@ -1,0 +1,28 @@
+struct Packet {
+    kind:u8;
+    payload:byte[2];
+}
+
+fn:byte choose(value:byte) {
+    return value;
+}
+
+fn:u8 main() {
+    let kind:u8 = 42;
+    let alias:byte = 200;
+    let payload:byte[2] = [kind, choose(alias)];
+    let packet:Packet = Packet {
+        kind:kind,
+        payload:payload
+    };
+
+    if packet.kind == kind {
+        print(packet.payload[1]);
+    }
+
+    if packet.payload[1] > packet.payload[0] {
+        return 0;
+    }
+
+    return 1;
+}

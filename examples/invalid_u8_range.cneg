@@ -1,0 +1,4 @@
+fn:int main() {
+    let value:u8 = 300;
+    return 0;
+}

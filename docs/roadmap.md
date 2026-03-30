@@ -13,6 +13,7 @@ Recently completed:
 - parser recovery for continued syntax diagnostics
 - typed IR optimization before LLVM lowering
 - initial stdlib modules: `std.math`, `std.strings`, `std.parse`, `std.fs`, `std.io`, `std.time`, `std.env`, `std.path`, `std.net`, and `std.process`
+- blocking IPv4 TCP and UDP helpers in `std.net`
 
 Current intent:
 

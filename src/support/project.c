@@ -35,6 +35,8 @@ static cn_type_ref *cn_builtin_primitive_type(cn_allocator *allocator, cn_type_k
     switch (kind) {
     case CN_TYPE_INT:
         return cn_type_create(allocator, CN_TYPE_INT, cn_sv_from_cstr("int"), NULL, 0);
+    case CN_TYPE_U8:
+        return cn_type_create(allocator, CN_TYPE_U8, cn_sv_from_cstr("u8"), NULL, 0);
     case CN_TYPE_BOOL:
         return cn_type_create(allocator, CN_TYPE_BOOL, cn_sv_from_cstr("bool"), NULL, 0);
     case CN_TYPE_STR:
@@ -52,6 +54,22 @@ static cn_type_ref *cn_builtin_result_type(cn_allocator *allocator, cn_type_kind
         CN_TYPE_RESULT,
         cn_sv_from_cstr("result"),
         cn_builtin_primitive_type(allocator, inner_kind),
+        0
+    );
+}
+
+static cn_type_ref *cn_builtin_named_type(cn_allocator *allocator, const char *module_name, const char *name) {
+    cn_type_ref *type = cn_type_create(allocator, CN_TYPE_NAMED, cn_sv_from_cstr(name), NULL, 0);
+    type->module_name = cn_sv_from_cstr(module_name);
+    return type;
+}
+
+static cn_type_ref *cn_builtin_result_wrapped_type(cn_allocator *allocator, cn_type_ref *inner) {
+    return cn_type_create(
+        allocator,
+        CN_TYPE_RESULT,
+        cn_sv_from_cstr("result"),
+        inner,
         0
     );
 }
@@ -75,6 +93,26 @@ static void cn_builtin_push_param(cn_allocator *allocator, cn_function *function
     param.type = type;
     param.offset = 0;
     cn_param_list_push(allocator, &function->parameters, param);
+}
+
+static cn_struct_decl *cn_builtin_struct_create(cn_allocator *allocator, const char *name) {
+    cn_struct_decl *struct_decl = cn_struct_decl_create(allocator, 0);
+    struct_decl->is_public = true;
+    struct_decl->name = cn_sv_from_cstr(name);
+    return struct_decl;
+}
+
+static void cn_builtin_push_struct_field(
+    cn_allocator *allocator,
+    cn_struct_decl *struct_decl,
+    const char *name,
+    cn_type_ref *type
+) {
+    cn_struct_field field;
+    field.name = cn_sv_from_cstr(name);
+    field.type = type;
+    field.offset = 0;
+    cn_struct_field_list_push(allocator, &struct_decl->fields, field);
 }
 
 static void cn_builtin_source_init(cn_allocator *allocator, cn_source *source, const char *path) {
@@ -286,6 +324,12 @@ static cn_program *cn_builtin_stdlib_program(cn_allocator *allocator, const char
     }
 
     if (strcmp(module_name, "std.net") == 0) {
+        cn_struct_decl *udp_packet = cn_builtin_struct_create(allocator, "UdpPacket");
+        cn_builtin_push_struct_field(allocator, udp_packet, "host", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_struct_field(allocator, udp_packet, "port", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_struct_field(allocator, udp_packet, "data", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_struct(program, udp_packet);
+
         cn_function *is_ipv4 = cn_builtin_function_create(allocator, "is_ipv4", cn_builtin_primitive_type(allocator, CN_TYPE_BOOL));
         cn_builtin_push_param(allocator, is_ipv4, "value", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
         cn_program_push_function(program, is_ipv4);
@@ -294,6 +338,55 @@ static cn_program *cn_builtin_stdlib_program(cn_allocator *allocator, const char
         cn_builtin_push_param(allocator, join_host_port, "host", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
         cn_builtin_push_param(allocator, join_host_port, "port", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
         cn_program_push_function(program, join_host_port);
+
+        cn_function *tcp_connect = cn_builtin_function_create(allocator, "tcp_connect", cn_builtin_result_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, tcp_connect, "host", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(allocator, tcp_connect, "port", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, tcp_connect);
+
+        cn_function *tcp_listen = cn_builtin_function_create(allocator, "tcp_listen", cn_builtin_result_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, tcp_listen, "host", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(allocator, tcp_listen, "port", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, tcp_listen);
+
+        cn_function *accept = cn_builtin_function_create(allocator, "accept", cn_builtin_result_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, accept, "listener", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, accept);
+
+        cn_function *send = cn_builtin_function_create(allocator, "send", cn_builtin_result_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, send, "socket", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, send, "data", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, send);
+
+        cn_function *recv = cn_builtin_function_create(allocator, "recv", cn_builtin_result_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(allocator, recv, "socket", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, recv, "max_bytes", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, recv);
+
+        cn_function *udp_bind = cn_builtin_function_create(allocator, "udp_bind", cn_builtin_result_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, udp_bind, "host", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(allocator, udp_bind, "port", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, udp_bind);
+
+        cn_function *udp_send_to = cn_builtin_function_create(allocator, "udp_send_to", cn_builtin_result_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, udp_send_to, "socket", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, udp_send_to, "host", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(allocator, udp_send_to, "port", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, udp_send_to, "data", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, udp_send_to);
+
+        cn_function *udp_recv_from = cn_builtin_function_create(
+            allocator,
+            "udp_recv_from",
+            cn_builtin_result_wrapped_type(allocator, cn_builtin_named_type(allocator, "std.net", "UdpPacket"))
+        );
+        cn_builtin_push_param(allocator, udp_recv_from, "socket", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, udp_recv_from, "max_bytes", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, udp_recv_from);
+
+        cn_function *close = cn_builtin_function_create(allocator, "close", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(allocator, close, "socket", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, close);
         return program;
     }
 

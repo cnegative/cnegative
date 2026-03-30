@@ -39,6 +39,7 @@
 - `E3025`: module-level constant initializer uses a runtime-only operation.
 - `E3026`: cyclic module-level constant definition.
 - `E3027`: duplicate or conflicting top-level constant name.
+- `E3028`: integer literal is out of range for the target type.
 
 ## Diagnostic Style
 

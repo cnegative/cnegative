@@ -51,6 +51,7 @@ typedef struct cn_assignment_target {
 } cn_assignment_target;
 
 static const cn_type_ref g_type_int = {CN_TYPE_INT, {NULL, 0}, {NULL, 0}, NULL, 0, 0};
+static const cn_type_ref g_type_u8 = {CN_TYPE_U8, {NULL, 0}, {NULL, 0}, NULL, 0, 0};
 static const cn_type_ref g_type_bool = {CN_TYPE_BOOL, {NULL, 0}, {NULL, 0}, NULL, 0, 0};
 static const cn_type_ref g_type_str = {CN_TYPE_STR, {NULL, 0}, {NULL, 0}, NULL, 0, 0};
 static const cn_type_ref g_type_void = {CN_TYPE_VOID, {NULL, 0}, {NULL, 0}, NULL, 0, 0};
@@ -59,6 +60,7 @@ static const cn_type_ref g_type_unknown = {CN_TYPE_UNKNOWN, {NULL, 0}, {NULL, 0}
 static const cn_type_ref *cn_builtin_type(cn_type_kind kind) {
     switch (kind) {
     case CN_TYPE_INT: return &g_type_int;
+    case CN_TYPE_U8: return &g_type_u8;
     case CN_TYPE_BOOL: return &g_type_bool;
     case CN_TYPE_STR: return &g_type_str;
     case CN_TYPE_VOID: return &g_type_void;
@@ -381,6 +383,20 @@ static void cn_emit_type_mismatch(cn_diag_bag *diagnostics, size_t offset, const
     cn_diag_emit(diagnostics, CN_DIAG_ERROR, "E3004", offset, "%s: expected %s, got %s", message, expected_name, actual_name);
 }
 
+static bool cn_type_is_integer_like(const cn_type_ref *type) {
+    return type != NULL && (type->kind == CN_TYPE_INT || type->kind == CN_TYPE_U8);
+}
+
+static bool cn_integer_types_match(const cn_type_ref *left, const cn_type_ref *right) {
+    return cn_type_is_integer_like(left) && cn_type_equal(left, right);
+}
+
+static bool cn_int_literal_fits_u8(const cn_expr *expression) {
+    return expression->kind == CN_EXPR_INT &&
+           expression->data.int_value >= 0 &&
+           expression->data.int_value <= 255;
+}
+
 static bool cn_validate_type_ref(cn_sema_ctx *ctx, const cn_type_ref *type, size_t offset) {
     if (type == NULL) {
         return false;
@@ -388,6 +404,7 @@ static bool cn_validate_type_ref(cn_sema_ctx *ctx, const cn_type_ref *type, size
 
     switch (type->kind) {
     case CN_TYPE_INT:
+    case CN_TYPE_U8:
     case CN_TYPE_BOOL:
     case CN_TYPE_STR:
     case CN_TYPE_VOID:
@@ -431,6 +448,7 @@ static bool cn_type_is_exportable(cn_sema_ctx *ctx, const cn_type_ref *type) {
 
     switch (type->kind) {
     case CN_TYPE_INT:
+    case CN_TYPE_U8:
     case CN_TYPE_BOOL:
     case CN_TYPE_STR:
     case CN_TYPE_VOID:
@@ -1057,6 +1075,21 @@ static const cn_type_ref *cn_check_address_of(cn_sema_ctx *ctx, cn_scope *scope,
 static const cn_type_ref *cn_check_expression_hint(cn_sema_ctx *ctx, cn_scope *scope, const cn_expr *expression, const cn_type_ref *expected) {
     switch (expression->kind) {
     case CN_EXPR_INT:
+        if (expected != NULL && expected->kind == CN_TYPE_U8) {
+            if (cn_int_literal_fits_u8(expression)) {
+                return cn_builtin_type(CN_TYPE_U8);
+            }
+
+            cn_diag_emit(
+                ctx->diagnostics,
+                CN_DIAG_ERROR,
+                "E3028",
+                expression->offset,
+                "u8 literal out of range: expected 0..255, got %lld",
+                (long long)expression->data.int_value
+            );
+            return cn_builtin_type(CN_TYPE_U8);
+        }
         return cn_builtin_type(CN_TYPE_INT);
     case CN_EXPR_BOOL:
         return cn_builtin_type(CN_TYPE_BOOL);
@@ -1128,11 +1161,14 @@ static const cn_type_ref *cn_check_expression_hint(cn_sema_ctx *ctx, cn_scope *s
         case CN_BINARY_LESS_EQUAL:
         case CN_BINARY_GREATER:
         case CN_BINARY_GREATER_EQUAL:
-            if (!cn_type_equal(left, cn_builtin_type(CN_TYPE_INT))) {
-                cn_emit_type_mismatch(ctx->diagnostics, expression->offset, "comparison operator requires int", cn_builtin_type(CN_TYPE_INT), left);
-            }
-            if (!cn_type_equal(right, cn_builtin_type(CN_TYPE_INT))) {
-                cn_emit_type_mismatch(ctx->diagnostics, expression->offset, "comparison operator requires int", cn_builtin_type(CN_TYPE_INT), right);
+            if (!cn_integer_types_match(left, right)) {
+                if (!cn_type_is_integer_like(left)) {
+                    cn_emit_type_mismatch(ctx->diagnostics, expression->offset, "comparison operator requires int or u8", cn_builtin_type(CN_TYPE_INT), left);
+                } else if (!cn_type_is_integer_like(right)) {
+                    cn_emit_type_mismatch(ctx->diagnostics, expression->offset, "comparison operator requires int or u8", left, right);
+                } else {
+                    cn_emit_type_mismatch(ctx->diagnostics, expression->offset, "comparison operands must use the same integer type", left, right);
+                }
             }
             return cn_builtin_type(CN_TYPE_BOOL);
         case CN_BINARY_AND:

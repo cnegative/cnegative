@@ -70,6 +70,8 @@ static cn_token_kind cn_keyword_kind(cn_strview text) {
     if (cn_sv_eq_cstr(text, "import")) return CN_TOKEN_IMPORT;
     if (cn_sv_eq_cstr(text, "as")) return CN_TOKEN_AS;
     if (cn_sv_eq_cstr(text, "int")) return CN_TOKEN_INT;
+    if (cn_sv_eq_cstr(text, "u8")) return CN_TOKEN_U8;
+    if (cn_sv_eq_cstr(text, "byte")) return CN_TOKEN_BYTE;
     if (cn_sv_eq_cstr(text, "bool")) return CN_TOKEN_BOOL;
     if (cn_sv_eq_cstr(text, "str")) return CN_TOKEN_STR;
     if (cn_sv_eq_cstr(text, "void")) return CN_TOKEN_VOID;

@@ -12,7 +12,7 @@ build/cnegc build examples/valid_basic.cneg
 
 ## Current Supported Lowering
 
-- `int`, `bool`, `str`, arrays, structs, `ptr`, and `result` function/data types.
+- `int`, `u8`, `bool`, `str`, arrays, structs, `ptr`, and `result` function/data types.
 - Local bindings with mutable reassignment.
 - Arithmetic and comparison operators.
 - Short-circuit `&&` and `||`.
@@ -38,8 +38,11 @@ build/cnegc build examples/valid_basic.cneg
 - `std.math.abs(...)`, `std.math.min(...)`, `std.math.max(...)`, and `std.math.clamp(...)` lower to small integer runtime helpers.
 - `std.env.has(...)` and `std.env.get(...)` lower to runtime environment helpers built on libc `getenv`.
 - `std.path.join(...)`, `std.path.file_name(...)`, `std.path.stem(...)`, `std.path.extension(...)`, `std.path.is_absolute(...)`, and `std.path.parent(...)` lower to runtime path helpers that understand both `/` and `\\` separators.
-- `std.net.is_ipv4(...)` lowers to a dotted-decimal IPv4 validator and `std.net.join_host_port(...)` lowers to a small formatting helper that returns an owned `"host:port"` string.
+- `std.net.is_ipv4(...)` lowers to a dotted-decimal IPv4 validator, `std.net.join_host_port(...)` lowers to a formatting helper that returns an owned `"host:port"` string, the blocking `std.net.tcp_connect(...)`, `std.net.tcp_listen(...)`, `std.net.accept(...)`, `std.net.send(...)`, `std.net.recv(...)`, and `std.net.close(...)` calls lower to embedded IPv4 TCP runtime helpers, and `std.net.udp_bind(...)`, `std.net.udp_send_to(...)`, and `std.net.udp_recv_from(...)` lower to embedded IPv4 UDP runtime helpers.
+- Linux and macOS use POSIX/BSD socket calls in the emitted runtime, while Windows lowers through Winsock and links `ws2_32`.
+- `std.net.recv(...)` returns an owned runtime string on success, and successful `std.net.udp_recv_from(...)` results contain owned `host` and `data` strings inside `std.net.UdpPacket`. Current socket/listener handles are surfaced to the language as raw `int` values.
 - `std.process.platform(...)` and `std.process.arch(...)` return owned copies of target strings, and `std.process.exit(...)` lowers to a runtime exit helper.
+- `u8` lowers as LLVM `i8`, `byte` is parsed as an alias for `u8`, matching `u8` comparisons lower with unsigned predicates, and printing `u8` widens through the runtime print helper.
 - `free some_string;` lowers to a tracked string-free helper so owned runtime strings can be released safely without freeing string literals.
 
 Unsupported lowering reports `E3021` before any LLVM IR text is printed.

@@ -54,9 +54,12 @@ Statement rule:
 ### Primitive Types
 
 - `int`
+- `u8`
 - `bool`
 - `str`
 - `void`
+
+`byte` is a source-level alias for `u8`.
 
 Implemented composite type forms:
 
@@ -173,6 +176,16 @@ Current builtin stdlib surface:
 - `std.path.parent(str) -> result str`
 - `std.net.is_ipv4(str) -> bool`
 - `std.net.join_host_port(str, int) -> str`
+- `std.net.tcp_connect(str, int) -> result int`
+- `std.net.tcp_listen(str, int) -> result int`
+- `std.net.accept(int) -> result int`
+- `std.net.send(int, str) -> result int`
+- `std.net.recv(int, int) -> result str`
+- `std.net.UdpPacket { host:str; port:int; data:str }`
+- `std.net.udp_bind(str, int) -> result int`
+- `std.net.udp_send_to(int, str, int, str) -> result int`
+- `std.net.udp_recv_from(int, int) -> result std.net.UdpPacket`
+- `std.net.close(int) -> result bool`
 - `std.process.platform() -> str`
 - `std.process.arch() -> str`
 - `std.process.exit(int) -> void`
@@ -279,8 +292,18 @@ Current runtime notes:
 - `std.path.is_absolute(path)` checks leading separators and Windows-style drive roots.
 - `std.net.is_ipv4(value)` checks a dotted-decimal IPv4 literal such as `"127.0.0.1"`.
 - `std.net.join_host_port(host, port)` returns an owned heap-backed `"host:port"` string.
+- `std.net.tcp_connect(host, port)` opens a blocking IPv4 TCP client connection and returns a raw socket handle as `result int`.
+- `std.net.tcp_listen(host, port)` opens a blocking IPv4 TCP listener and returns a raw listener handle as `result int`.
+- `std.net.accept(listener)` blocks until one client connects and returns the accepted socket handle as `result int`.
+- `std.net.send(socket, value)` blocks until the whole string is written or the send fails.
+- `std.net.recv(socket, max_bytes)` blocks until a chunk arrives or the peer closes, and returns an owned heap-backed string on success.
+- `std.net.udp_bind(host, port)` opens a blocking IPv4 UDP socket bound to the given local address and returns a raw socket handle as `result int`.
+- `std.net.udp_send_to(socket, host, port, value)` sends the full string as one UDP datagram.
+- `std.net.udp_recv_from(socket, max_bytes)` blocks until one UDP datagram arrives and returns `result std.net.UdpPacket`, where `packet.host` and `packet.data` are owned heap-backed strings and `packet.port` is the sender port.
+- `std.net.close(handle)` closes a socket/listener handle and returns `result bool`.
+- `std.net` currently targets blocking IPv4 TCP and UDP only. Linux and macOS lower through POSIX/BSD socket calls, and Windows lowers through Winsock.
 - `std.process.platform()` and `std.process.arch()` return owned heap-backed copies of the current target platform/architecture strings.
 - `std.process.exit(code)` lowers to a runtime process-exit helper.
-- `free some_string;` releases tracked owned strings created by `input()`, `std.io.read_line()`, `str_copy(...)`, `str_concat(...)`, `std.strings.copy(...)`, `std.strings.concat(...)`, `std.fs.read_text(...)`, `std.fs.cwd(...)`, `std.env.get(...)`, `std.path.join(...)`, `std.path.file_name(...)`, `std.path.stem(...)`, `std.path.extension(...)`, `std.path.parent(...)`, `std.net.join_host_port(...)`, `std.process.platform(...)`, or `std.process.arch(...)`. Freeing string literals is a safe no-op in the generated runtime.
+- `free some_string;` releases tracked owned strings created by `input()`, `std.io.read_line()`, `str_copy(...)`, `str_concat(...)`, `std.strings.copy(...)`, `std.strings.concat(...)`, `std.fs.read_text(...)`, `std.fs.cwd(...)`, `std.env.get(...)`, `std.path.join(...)`, `std.path.file_name(...)`, `std.path.stem(...)`, `std.path.extension(...)`, `std.path.parent(...)`, `std.net.join_host_port(...)`, `std.net.recv(...)`, the `host` and `data` fields from successful `std.net.udp_recv_from(...)`, `std.process.platform(...)`, or `std.process.arch(...)`. Freeing string literals is a safe no-op in the generated runtime.
 - `str` equality in the backend is content-based through `strcmp`, not pointer-identity based.
 - The parser now recovers across common statement and top-level syntax errors so one missing `;` does not collapse the whole file into a single follow-on failure.

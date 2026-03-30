@@ -6,6 +6,7 @@
 
 typedef enum cn_type_kind {
     CN_TYPE_INT,
+    CN_TYPE_U8,
     CN_TYPE_BOOL,
     CN_TYPE_STR,
     CN_TYPE_VOID,

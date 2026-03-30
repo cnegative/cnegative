@@ -1,0 +1,94 @@
+import std.net as net;
+import std.strings as strings;
+import std.env as env;
+import std.parse as parse;
+
+fn:int resolve_port() {
+    let raw:result str = env.get("CNEGATIVE_NET_TEST_PORT");
+    if raw.ok == false {
+        return 34567;
+    }
+
+    if raw.ok {
+        let parsed:result int = parse.to_int(raw.value);
+        free raw.value;
+        if parsed.ok {
+            return parsed.value;
+        }
+    }
+
+    return 34567;
+}
+
+fn:int main() {
+    let port:int = resolve_port();
+    let listener:result int = net.tcp_listen("127.0.0.1", port);
+    if listener.ok {
+        let client:result int = net.accept(listener.value);
+        if client.ok == false {
+            let close_listener_on_accept_error:result bool = net.close(listener.value);
+            if close_listener_on_accept_error.ok == false {
+                return 2;
+            }
+            return 3;
+        }
+
+        if client.ok {
+            let message:result str = net.recv(client.value, 32);
+            if message.ok == false {
+                let close_client_on_recv_error:result bool = net.close(client.value);
+                let close_listener_on_recv_error:result bool = net.close(listener.value);
+                if close_client_on_recv_error.ok == false {
+                    return 4;
+                }
+                if close_listener_on_recv_error.ok == false {
+                    return 5;
+                }
+                return 6;
+            }
+
+            if message.ok {
+                if strings.eq(message.value, "ping") == false {
+                    free message.value;
+                    let close_client_on_message_error:result bool = net.close(client.value);
+                    let close_listener_on_message_error:result bool = net.close(listener.value);
+                    if close_client_on_message_error.ok == false {
+                        return 7;
+                    }
+                    if close_listener_on_message_error.ok == false {
+                        return 8;
+                    }
+                    return 9;
+                }
+
+                free message.value;
+            }
+
+            let sent:result int = net.send(client.value, "pong");
+            if sent.ok == false {
+                let close_client_on_send_error:result bool = net.close(client.value);
+                let close_listener_on_send_error:result bool = net.close(listener.value);
+                if close_client_on_send_error.ok == false {
+                    return 10;
+                }
+                if close_listener_on_send_error.ok == false {
+                    return 11;
+                }
+                return 12;
+            }
+
+            let close_client:result bool = net.close(client.value);
+            let close_listener:result bool = net.close(listener.value);
+            if close_client.ok == false {
+                return 13;
+            }
+            if close_listener.ok == false {
+                return 14;
+            }
+        }
+
+        return 0;
+    }
+
+    return 1;
+}
