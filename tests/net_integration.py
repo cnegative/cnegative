@@ -109,11 +109,18 @@ for run_index in range(repetitions):
 """
 
 
-def _exe(path: str) -> str:
-    """Append .exe on Windows if not already present."""
-    if sys.platform == "win32" and not path.endswith(".exe"):
-        return path + ".exe"
-    return path
+def _resolve_binary(path: str) -> Path:
+    candidate = Path(path)
+    if candidate.exists():
+        return candidate
+
+    if sys.platform == "win32" and candidate.suffix.lower() != ".exe":
+        exe_candidate = Path(path + ".exe")
+        if exe_candidate.exists():
+            return exe_candidate
+        return exe_candidate
+
+    return candidate
 
 
 def main() -> int:
@@ -131,14 +138,18 @@ def main() -> int:
     repo_root = Path(__file__).resolve().parent.parent
     os.chdir(repo_root)
 
-    for binary_path in (Path(_exe(args.main_binary)), Path(_exe(args.server_binary)), Path(_exe(args.client_binary))):
+    main_binary = _resolve_binary(args.main_binary)
+    server_binary = _resolve_binary(args.server_binary)
+    client_binary = _resolve_binary(args.client_binary)
+
+    for binary_path in (main_binary, server_binary, client_binary):
         if not binary_path.exists():
             raise SystemExit(f"expected built binary before running net integration: {binary_path}")
 
     runner_env = dict(os.environ)
-    runner_env["CNEGATIVE_NET_MAIN_BINARY"]   = _exe(args.main_binary)
-    runner_env["CNEGATIVE_NET_SERVER_BINARY"] = _exe(args.server_binary)
-    runner_env["CNEGATIVE_NET_CLIENT_BINARY"] = _exe(args.client_binary)
+    runner_env["CNEGATIVE_NET_MAIN_BINARY"] = str(main_binary)
+    runner_env["CNEGATIVE_NET_SERVER_BINARY"] = str(server_binary)
+    runner_env["CNEGATIVE_NET_CLIENT_BINARY"] = str(client_binary)
     runner_env["CNEGATIVE_NET_REPETITIONS"]   = str(args.repetitions)
     runner_env["CNEGATIVE_NET_SETTLE_SECONDS"]  = str(args.settle_seconds)
     runner_env["CNEGATIVE_NET_TIMEOUT_SECONDS"] = str(args.timeout_seconds)
