@@ -136,6 +136,7 @@ static cn_block *cn_parse_block(cn_parser *parser);
 static cn_stmt *cn_parse_statement(cn_parser *parser);
 static cn_expr *cn_parse_expression(cn_parser *parser);
 static cn_expr *cn_parse_struct_literal(cn_parser *parser, cn_strview module_name, const cn_token *type_token);
+static cn_expr *cn_parse_if_expression(cn_parser *parser, const cn_token *if_token);
 
 static cn_strview cn_parser_parse_import_path(cn_parser *parser, char **owned_module_name, cn_strview *default_alias, bool *ok) {
     const cn_token *segment = cn_parser_consume(parser, CN_TOKEN_IDENTIFIER, "expected module name after 'import'");
@@ -325,6 +326,54 @@ static cn_expr *cn_parse_alloc_expression(cn_parser *parser, const cn_token *all
     return expression;
 }
 
+static cn_expr *cn_parse_if_expression_branch(cn_parser *parser, const char *message) {
+    if (cn_parser_consume(parser, CN_TOKEN_LBRACE, message) == NULL) {
+        return NULL;
+    }
+
+    cn_expr *expression = cn_parse_expression(parser);
+    cn_parser_consume(parser, CN_TOKEN_RBRACE, "expected '}' after if-expression branch");
+    return expression;
+}
+
+static cn_expr *cn_parse_if_expression(cn_parser *parser, const cn_token *if_token) {
+    cn_expr *condition = cn_parse_expression(parser);
+    cn_expr *then_expr = cn_parse_if_expression_branch(parser, "expected '{' after if-expression condition");
+    if (condition == NULL || then_expr == NULL) {
+        return NULL;
+    }
+
+    if (!cn_parser_match(parser, CN_TOKEN_ELSE)) {
+        cn_diag_emit(
+            parser->diagnostics,
+            CN_DIAG_ERROR,
+            "E1001",
+            cn_parser_current(parser)->offset,
+            "expected 'else' after if-expression branch, got '%s'",
+            cn_token_kind_name(cn_parser_current(parser)->kind)
+        );
+        return NULL;
+    }
+
+    cn_expr *else_expr = NULL;
+    if (cn_parser_check(parser, CN_TOKEN_IF)) {
+        const cn_token *else_if = cn_parser_advance(parser);
+        else_expr = cn_parse_if_expression(parser, else_if);
+    } else {
+        else_expr = cn_parse_if_expression_branch(parser, "expected '{' or nested 'if' after 'else'");
+    }
+
+    if (else_expr == NULL) {
+        return NULL;
+    }
+
+    cn_expr *expression = cn_expr_create(parser->allocator, CN_EXPR_IF, if_token->offset);
+    expression->data.if_expr.condition = condition;
+    expression->data.if_expr.then_expr = then_expr;
+    expression->data.if_expr.else_expr = else_expr;
+    return expression;
+}
+
 static cn_expr *cn_parse_primary(cn_parser *parser) {
     const cn_token *token = cn_parser_current(parser);
 
@@ -362,6 +411,10 @@ static cn_expr *cn_parse_primary(cn_parser *parser) {
 
     if (cn_parser_match(parser, CN_TOKEN_ALLOC)) {
         return cn_parse_alloc_expression(parser, token);
+    }
+
+    if (cn_parser_match(parser, CN_TOKEN_IF)) {
+        return cn_parse_if_expression(parser, token);
     }
 
     if (cn_parser_check(parser, CN_TOKEN_IDENTIFIER)) {
@@ -754,7 +807,7 @@ static cn_stmt *cn_parse_assignment_or_expr_statement(cn_parser *parser) {
         }
 
         if (!cn_expr_is_assignable(left)) {
-            cn_diag_emit(parser->diagnostics, CN_DIAG_ERROR, "E1002", left->offset, "invalid assignment target");
+            cn_diag_emit(parser->diagnostics, CN_DIAG_ERROR, "E1006", left->offset, "invalid assignment target");
         }
 
         cn_stmt *statement = cn_stmt_create(parser->allocator, CN_STMT_ASSIGN, left->offset);

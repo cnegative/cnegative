@@ -4,23 +4,23 @@ struct Packet {
 }
 
 fn:byte choose(value:byte) {
-    return value;
+    return if value == 0 { 1 } else { value };
 }
 
 fn:u8 main() {
-    let kind:u8 = 42;
-    let alias:byte = 200;
+    let kind:u8 = if true { 42 } else { 0 };
+    let alias:byte = 0;
     let payload:byte[2] = [kind, choose(alias)];
     let packet:Packet = Packet {
         kind:kind,
         payload:payload
     };
 
-    if packet.kind == kind {
+    if packet.kind == 42 {
         print(packet.payload[1]);
     }
 
-    if packet.payload[1] > packet.payload[0] {
+    if packet.payload[1] == 1 {
         return 0;
     }
 

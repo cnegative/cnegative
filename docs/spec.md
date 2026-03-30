@@ -69,6 +69,12 @@ Current arithmetic operators on `int` are:
 - `/`
 - `%`
 
+Literal compatibility today:
+
+- Integer literals still default to `int`.
+- Fitting integer literals are accepted where `u8` or `byte` is expected.
+- That includes comparisons such as `some_byte == 0`.
+
 Implemented composite type forms:
 
 - `ptr T`
@@ -88,6 +94,18 @@ Strict condition rule:
 - `if x > 5 {}` is valid because `x > 5` is boolean.
 - `if x {}` is invalid when `x` is not `bool`.
 - No implicit integer truthiness exists.
+
+Narrow `if` expressions are also supported when both branches produce a value:
+
+```lang
+let kind:int = if x > 5 { 1 } else { 0 };
+```
+
+Current `if` expression rules:
+
+- `else` is required.
+- Both branches must produce a non-`void` value.
+- Both branches must resolve to the same type.
 
 ### Loops
 
@@ -141,6 +159,7 @@ import std.parse as parse;
 import std.fs as fs;
 import std.net as net;
 import std.process as process;
+import std.x11 as x11;
 ```
 
 Current builtin stdlib surface:
@@ -206,6 +225,9 @@ Current builtin stdlib surface:
 - `std.process.platform() -> str`
 - `std.process.arch() -> str`
 - `std.process.exit(int) -> void`
+- Linux only: `std.x11.open_window(str, int, int) -> result int`
+- Linux only: `std.x11.pump(int) -> result bool`
+- Linux only: `std.x11.close(int) -> result bool`
 
 Public constants are also available through a qualified module name:
 
@@ -321,6 +343,7 @@ Current runtime notes:
 - `std.net` currently targets blocking IPv4 TCP and UDP only. Linux and macOS lower through POSIX/BSD socket calls, and Windows lowers through Winsock.
 - `std.process.platform()` and `std.process.arch()` return owned heap-backed copies of the current target platform/architecture strings.
 - `std.process.exit(code)` lowers to a runtime process-exit helper.
+- `std.x11` is currently a tiny experimental Linux-only window module for stress testing real host integration. `open_window(title, width, height)` returns a raw window handle as `result int`, `pump(handle)` reports whether the window should keep running, and `close(handle)` destroys the native window.
 - `free some_string;` releases tracked owned strings created by `input()`, `std.io.read_line()`, `str_copy(...)`, `str_concat(...)`, `std.strings.copy(...)`, `std.strings.concat(...)`, `std.fs.read_text(...)`, `std.fs.cwd(...)`, `std.env.get(...)`, `std.path.join(...)`, `std.path.file_name(...)`, `std.path.stem(...)`, `std.path.extension(...)`, `std.path.parent(...)`, `std.net.join_host_port(...)`, `std.net.recv(...)`, the `host` and `data` fields from successful `std.net.udp_recv_from(...)`, `std.process.platform(...)`, or `std.process.arch(...)`. Freeing string literals is a safe no-op in the generated runtime.
 - `str` equality in the backend is content-based through `strcmp`, not pointer-identity based.
 - The parser now recovers across common statement and top-level syntax errors so one missing `;` does not collapse the whole file into a single follow-on failure.

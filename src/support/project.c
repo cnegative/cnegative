@@ -134,6 +134,9 @@ static bool cn_is_builtin_stdlib_module_name(cn_strview module_name) {
            cn_sv_eq_cstr(module_name, "std.env") ||
            cn_sv_eq_cstr(module_name, "std.path") ||
            cn_sv_eq_cstr(module_name, "std.net") ||
+#if defined(__linux__)
+           cn_sv_eq_cstr(module_name, "std.x11") ||
+#endif
            cn_sv_eq_cstr(module_name, "std.process");
 }
 
@@ -430,6 +433,25 @@ static cn_program *cn_builtin_stdlib_program(cn_allocator *allocator, const char
         cn_program_push_function(program, close);
         return program;
     }
+
+#if defined(__linux__)
+    if (strcmp(module_name, "std.x11") == 0) {
+        cn_function *open_window = cn_builtin_function_create(allocator, "open_window", cn_builtin_result_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, open_window, "title", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(allocator, open_window, "width", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, open_window, "height", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, open_window);
+
+        cn_function *pump = cn_builtin_function_create(allocator, "pump", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(allocator, pump, "handle", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, pump);
+
+        cn_function *close = cn_builtin_function_create(allocator, "close", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(allocator, close, "handle", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, close);
+        return program;
+    }
+#endif
 
     if (strcmp(module_name, "std.process") == 0) {
         cn_function *platform = cn_builtin_function_create(allocator, "platform", cn_builtin_primitive_type(allocator, CN_TYPE_STR));

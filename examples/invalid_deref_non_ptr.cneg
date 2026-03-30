@@ -1,0 +1,4 @@
+fn:int main() {
+    print(deref 1);
+    return 0;
+}

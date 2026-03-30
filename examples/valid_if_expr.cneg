@@ -1,0 +1,19 @@
+fn:int classify(flag:bool, value:byte) {
+    return if value == 0 {
+        if flag { 1 } else { 2 }
+    } else {
+        3
+    };
+}
+
+fn:int main() {
+    let flag:bool = true;
+    let value:byte = 0;
+    let picked:int = if flag { 7 } else { 9 };
+
+    if picked == 7 {
+        return classify(flag, value);
+    }
+
+    return 4;
+}

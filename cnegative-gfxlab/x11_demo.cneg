@@ -1,0 +1,40 @@
+import std.time as time;
+import std.x11 as x11;
+
+fn:int main() {
+    let opened:result int = x11.open_window("cnegative-gfxlab x11", 640, 360);
+    if opened.ok {
+        let handle:int = opened.value;
+        let mut frames:int = 0;
+        let mut running:bool = true;
+
+        while running && frames < 180 {
+            let pumped:result bool = x11.pump(handle);
+            if pumped.ok {
+                if pumped.value == false {
+                    running = false;
+                }
+            } else {
+                let closed_err:result bool = x11.close(handle);
+                if closed_err.ok == false {
+                    return 2;
+                }
+                return 3;
+            }
+
+            if running {
+                time.sleep_ms(16);
+                frames = frames + 1;
+            }
+        }
+
+        let closed:result bool = x11.close(handle);
+        if closed.ok == false {
+            return 4;
+        }
+
+        return 0;
+    }
+
+    return 1;
+}

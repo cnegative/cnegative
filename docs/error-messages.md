@@ -9,6 +9,7 @@
 - `E1003`: invalid type syntax.
 - `E1004`: invalid character during lexing.
 - `E1005`: unterminated string literal.
+- `E1006`: invalid assignment target in statement syntax.
 
 ## Semantic Errors
 
@@ -40,6 +41,10 @@
 - `E3026`: cyclic module-level constant definition.
 - `E3027`: duplicate or conflicting top-level constant name.
 - `E3028`: integer literal is out of range for the target type.
+- `E3029`: `if` expression branch does not produce a value.
+- `E3030`: `if` expression branch types do not match.
+- `E3031`: `addr` target is not addressable.
+- `E3032`: `deref` requires a pointer value.
 
 ## Diagnostic Style
 

@@ -19,6 +19,11 @@ static void cn_ir_opt_expr_destroy(cn_allocator *allocator, cn_ir_expr *expressi
         cn_ir_opt_expr_destroy(allocator, expression->data.binary.left);
         cn_ir_opt_expr_destroy(allocator, expression->data.binary.right);
         break;
+    case CN_IR_EXPR_IF:
+        cn_ir_opt_expr_destroy(allocator, expression->data.if_expr.condition);
+        cn_ir_opt_expr_destroy(allocator, expression->data.if_expr.then_expr);
+        cn_ir_opt_expr_destroy(allocator, expression->data.if_expr.else_expr);
+        break;
     case CN_IR_EXPR_CALL:
         for (size_t i = 0; i < expression->data.call.arguments.count; ++i) {
             cn_ir_opt_expr_destroy(allocator, expression->data.call.arguments.items[i]);
@@ -152,6 +157,12 @@ static void cn_ir_opt_replace_with_bool(cn_allocator *allocator, cn_ir_expr *exp
     expression->data.bool_value = value;
 }
 
+static void cn_ir_opt_replace_with_expr(cn_allocator *allocator, cn_ir_expr *expression, cn_ir_expr *replacement) {
+    cn_ir_type_destroy(allocator, expression->type);
+    *expression = *replacement;
+    CN_FREE(allocator, replacement);
+}
+
 static void cn_ir_opt_fold_unary(cn_allocator *allocator, cn_ir_expr *expression) {
     cn_ir_expr *operand = expression->data.unary.operand;
 
@@ -229,6 +240,24 @@ static void cn_ir_opt_fold_binary(cn_allocator *allocator, cn_ir_expr *expressio
     }
 }
 
+static void cn_ir_opt_fold_if(cn_allocator *allocator, cn_ir_expr *expression) {
+    cn_ir_expr *condition = expression->data.if_expr.condition;
+    if (condition == NULL || condition->kind != CN_IR_EXPR_BOOL) {
+        return;
+    }
+
+    cn_ir_expr *selected = condition->data.bool_value
+        ? expression->data.if_expr.then_expr
+        : expression->data.if_expr.else_expr;
+    cn_ir_expr *discard = condition->data.bool_value
+        ? expression->data.if_expr.else_expr
+        : expression->data.if_expr.then_expr;
+
+    cn_ir_opt_expr_destroy(allocator, discard);
+    cn_ir_opt_expr_destroy(allocator, condition);
+    cn_ir_opt_replace_with_expr(allocator, expression, selected);
+}
+
 static void cn_ir_optimize_expr(cn_allocator *allocator, cn_ir_expr *expression) {
     if (expression == NULL) {
         return;
@@ -243,6 +272,12 @@ static void cn_ir_optimize_expr(cn_allocator *allocator, cn_ir_expr *expression)
         cn_ir_optimize_expr(allocator, expression->data.binary.left);
         cn_ir_optimize_expr(allocator, expression->data.binary.right);
         cn_ir_opt_fold_binary(allocator, expression);
+        return;
+    case CN_IR_EXPR_IF:
+        cn_ir_optimize_expr(allocator, expression->data.if_expr.condition);
+        cn_ir_optimize_expr(allocator, expression->data.if_expr.then_expr);
+        cn_ir_optimize_expr(allocator, expression->data.if_expr.else_expr);
+        cn_ir_opt_fold_if(allocator, expression);
         return;
     case CN_IR_EXPR_CALL:
         for (size_t i = 0; i < expression->data.call.arguments.count; ++i) {

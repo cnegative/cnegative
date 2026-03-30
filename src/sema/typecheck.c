@@ -391,10 +391,30 @@ static bool cn_integer_types_match(const cn_type_ref *left, const cn_type_ref *r
     return cn_type_is_integer_like(left) && cn_type_equal(left, right);
 }
 
+static const cn_type_ref *cn_check_expression_hint(
+    cn_sema_ctx *ctx,
+    cn_scope *scope,
+    const cn_expr *expression,
+    const cn_type_ref *expected
+);
+
 static bool cn_int_literal_fits_u8(const cn_expr *expression) {
     return expression->kind == CN_EXPR_INT &&
            expression->data.int_value >= 0 &&
            expression->data.int_value <= 255;
+}
+
+static const cn_type_ref *cn_check_integer_literal_against_peer(
+    cn_sema_ctx *ctx,
+    cn_scope *scope,
+    const cn_expr *expression,
+    const cn_type_ref *peer_type
+) {
+    if (peer_type != NULL && peer_type->kind == CN_TYPE_U8 && expression->kind == CN_EXPR_INT) {
+        return cn_check_expression_hint(ctx, scope, expression, peer_type);
+    }
+
+    return cn_check_expression_hint(ctx, scope, expression, NULL);
 }
 
 static bool cn_validate_type_ref(cn_sema_ctx *ctx, const cn_type_ref *type, size_t offset) {
@@ -568,6 +588,10 @@ static bool cn_check_const_expr(cn_sema_ctx *ctx, const cn_expr *expression) {
     case CN_EXPR_BINARY:
         return cn_check_const_expr(ctx, expression->data.binary.left) &&
                cn_check_const_expr(ctx, expression->data.binary.right);
+    case CN_EXPR_IF:
+        return cn_check_const_expr(ctx, expression->data.if_expr.condition) &&
+               cn_check_const_expr(ctx, expression->data.if_expr.then_expr) &&
+               cn_check_const_expr(ctx, expression->data.if_expr.else_expr);
     case CN_EXPR_ARRAY_LITERAL:
         for (size_t i = 0; i < expression->data.array_literal.items.count; ++i) {
             if (!cn_check_const_expr(ctx, expression->data.array_literal.items.items[i])) {
@@ -1056,7 +1080,13 @@ static const cn_type_ref *cn_check_call(cn_sema_ctx *ctx, cn_scope *scope, const
 static const cn_type_ref *cn_check_address_of(cn_sema_ctx *ctx, cn_scope *scope, const cn_expr *expression) {
     const cn_expr *target = expression->data.addr_expr.target;
     if (target->kind != CN_EXPR_NAME && target->kind != CN_EXPR_FIELD && target->kind != CN_EXPR_INDEX && target->kind != CN_EXPR_DEREF) {
-        cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3004", expression->offset, "address-of target must be a named value, dereference, field, or array element");
+        cn_diag_emit(
+            ctx->diagnostics,
+            CN_DIAG_ERROR,
+            "E3031",
+            expression->offset,
+            "address-of target must be a named value, dereference, field, or array element"
+        );
         return cn_builtin_type(CN_TYPE_UNKNOWN);
     }
 
@@ -1070,6 +1100,73 @@ static const cn_type_ref *cn_check_address_of(cn_sema_ctx *ctx, cn_scope *scope,
         0,
         expression->offset
     );
+}
+
+static const cn_type_ref *cn_check_if_expression(
+    cn_sema_ctx *ctx,
+    cn_scope *scope,
+    const cn_expr *expression,
+    const cn_type_ref *expected
+) {
+    const cn_type_ref *condition_type = cn_check_expression_hint(
+        ctx,
+        scope,
+        expression->data.if_expr.condition,
+        cn_builtin_type(CN_TYPE_BOOL)
+    );
+    if (!cn_type_equal(condition_type, cn_builtin_type(CN_TYPE_BOOL))) {
+        cn_diag_emit(
+            ctx->diagnostics,
+            CN_DIAG_ERROR,
+            "E3005",
+            expression->data.if_expr.condition->offset,
+            "if expression condition must be bool"
+        );
+    }
+
+    const cn_type_ref *then_type = NULL;
+    const cn_type_ref *else_type = NULL;
+
+    if (expected != NULL) {
+        then_type = cn_check_expression_hint(ctx, scope, expression->data.if_expr.then_expr, expected);
+        else_type = cn_check_expression_hint(ctx, scope, expression->data.if_expr.else_expr, expected);
+    } else {
+        then_type = cn_check_expression_hint(ctx, scope, expression->data.if_expr.then_expr, NULL);
+        else_type = cn_check_integer_literal_against_peer(ctx, scope, expression->data.if_expr.else_expr, then_type);
+        if (else_type->kind == CN_TYPE_U8 && expression->data.if_expr.then_expr->kind == CN_EXPR_INT) {
+            then_type = cn_check_expression_hint(ctx, scope, expression->data.if_expr.then_expr, else_type);
+        }
+    }
+
+    if (then_type->kind == CN_TYPE_VOID || else_type->kind == CN_TYPE_VOID) {
+        cn_diag_emit(
+            ctx->diagnostics,
+            CN_DIAG_ERROR,
+            "E3029",
+            expression->offset,
+            "if expressions must produce a non-void value on both branches"
+        );
+        return cn_builtin_type(CN_TYPE_UNKNOWN);
+    }
+
+    if (!cn_type_equal(then_type, else_type)) {
+        char then_name[64];
+        char else_name[64];
+        cn_type_describe(then_type, then_name, sizeof(then_name));
+        cn_type_describe(else_type, else_name, sizeof(else_name));
+        cn_diag_emit(
+            ctx->diagnostics,
+            CN_DIAG_ERROR,
+            "E3030",
+            expression->offset,
+            "if expression branch types must match: then is %s, else is %s",
+            then_name,
+            else_name
+        );
+        return cn_builtin_type(CN_TYPE_UNKNOWN);
+    }
+
+    return then_type;
 }
 
 static const cn_type_ref *cn_check_expression_hint(cn_sema_ctx *ctx, cn_scope *scope, const cn_expr *expression, const cn_type_ref *expected) {
@@ -1137,7 +1234,10 @@ static const cn_type_ref *cn_check_expression_hint(cn_sema_ctx *ctx, cn_scope *s
     }
     case CN_EXPR_BINARY: {
         const cn_type_ref *left = cn_check_expression_hint(ctx, scope, expression->data.binary.left, NULL);
-        const cn_type_ref *right = cn_check_expression_hint(ctx, scope, expression->data.binary.right, NULL);
+        const cn_type_ref *right = cn_check_integer_literal_against_peer(ctx, scope, expression->data.binary.right, left);
+        if (right->kind == CN_TYPE_U8 && expression->data.binary.left->kind == CN_EXPR_INT) {
+            left = cn_check_expression_hint(ctx, scope, expression->data.binary.left, right);
+        }
 
         switch (expression->data.binary.op) {
         case CN_BINARY_ADD:
@@ -1184,6 +1284,8 @@ static const cn_type_ref *cn_check_expression_hint(cn_sema_ctx *ctx, cn_scope *s
         }
         return cn_builtin_type(CN_TYPE_UNKNOWN);
     }
+    case CN_EXPR_IF:
+        return cn_check_if_expression(ctx, scope, expression, expected);
     case CN_EXPR_CALL:
         return cn_check_call(ctx, scope, expression);
     case CN_EXPR_ARRAY_LITERAL:
@@ -1236,7 +1338,7 @@ static const cn_type_ref *cn_check_expression_hint(cn_sema_ctx *ctx, cn_scope *s
     case CN_EXPR_DEREF: {
         const cn_type_ref *target_type = cn_check_expression_hint(ctx, scope, expression->data.deref_expr.target, NULL);
         if (target_type->kind != CN_TYPE_PTR) {
-            cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3004", expression->offset, "deref requires a ptr value");
+            cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3032", expression->offset, "deref requires a ptr value");
             return cn_builtin_type(CN_TYPE_UNKNOWN);
         }
         return target_type->inner;

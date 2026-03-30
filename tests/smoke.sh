@@ -64,6 +64,7 @@ cn_verify_llvm_ir() {
 ./build/cnegc check examples/valid_stdlib_math_process.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_stdlib_path_fs_extra.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_u8.cneg >"$tmp_valid"
+./build/cnegc check examples/valid_if_expr.cneg >"$tmp_valid"
 
 ./build/cnegc bench-lexer examples/valid_basic.cneg 5 >"$tmp_valid"
 if ! grep -q 'tokens_per_second:' "$tmp_valid"; then
@@ -258,13 +259,30 @@ if ! grep -q 'fn valid_u8.main() -> u8' "$tmp_ir"; then
     cat "$tmp_ir"
     exit 1
 fi
-if ! grep -q 'let alias:u8 = 200;' "$tmp_ir"; then
-    printf 'expected byte alias canonicalized to u8 in typed IR for valid_u8.cneg\n'
+if ! grep -q 'return if (value == 0) {' "$tmp_ir"; then
+    printf 'expected if-expression lowering in typed IR for valid_u8.cneg\n'
     cat "$tmp_ir"
     exit 1
 fi
-if ! grep -q 'packet.payload\[1\] > packet.payload\[0\]' "$tmp_ir"; then
-    printf 'expected u8 comparison in typed IR for valid_u8.cneg\n'
+if ! grep -q 'packet.kind == 42' "$tmp_ir"; then
+    printf 'expected byte literal comparison in typed IR for valid_u8.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'packet.payload\[1\] == 1' "$tmp_ir"; then
+    printf 'expected u8 equality with literal in typed IR for valid_u8.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+
+./build/cnegc ir examples/valid_if_expr.cneg >"$tmp_ir"
+if ! grep -q 'let picked:int = if flag {' "$tmp_ir"; then
+    printf 'expected if-expression binding in typed IR for valid_if_expr.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'return if (value == 0) {' "$tmp_ir"; then
+    printf 'expected nested if-expression return in typed IR for valid_if_expr.cneg\n'
     cat "$tmp_ir"
     exit 1
 fi
@@ -561,13 +579,26 @@ if ! grep -q 'alloca i8' "$tmp_ll"; then
     cat "$tmp_ll"
     exit 1
 fi
-if ! grep -q 'icmp ugt i8' "$tmp_ll"; then
-    printf 'expected unsigned u8 comparison lowering in LLVM IR for valid_u8.cneg\n'
+if ! grep -q 'icmp eq i8' "$tmp_ll"; then
+    printf 'expected unsigned u8 equality lowering in LLVM IR for valid_u8.cneg\n'
     cat "$tmp_ll"
     exit 1
 fi
 if ! grep -q 'zext i8' "$tmp_ll"; then
     printf 'expected u8 widening in LLVM IR for valid_u8.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+cn_verify_llvm_ir "$tmp_ll" "$tmp_bc"
+
+./build/cnegc llvm-ir examples/valid_if_expr.cneg >"$tmp_ll"
+if ! grep -q 'br i1' "$tmp_ll"; then
+    printf 'expected branch lowering in LLVM IR for valid_if_expr.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q 'alloca i64' "$tmp_ll"; then
+    printf 'expected if-expression result storage in LLVM IR for valid_if_expr.cneg\n'
     cat "$tmp_ll"
     exit 1
 fi
@@ -580,6 +611,72 @@ fi
 
 if ! grep -q 'E3005' "$tmp_invalid"; then
     printf 'expected E3005 in invalid_if_int_condition.cneg output\n'
+    cat "$tmp_invalid"
+    exit 1
+fi
+
+if ./build/cnegc check examples/invalid_if_expr_int_condition.cneg >"$tmp_invalid" 2>&1; then
+    printf 'expected invalid_if_expr_int_condition.cneg to fail\n'
+    exit 1
+fi
+
+if ! grep -q 'E3005' "$tmp_invalid"; then
+    printf 'expected E3005 in invalid_if_expr_int_condition.cneg output\n'
+    cat "$tmp_invalid"
+    exit 1
+fi
+
+if ./build/cnegc check examples/invalid_if_expr_void.cneg >"$tmp_invalid" 2>&1; then
+    printf 'expected invalid_if_expr_void.cneg to fail\n'
+    exit 1
+fi
+
+if ! grep -q 'E3029' "$tmp_invalid"; then
+    printf 'expected E3029 in invalid_if_expr_void.cneg output\n'
+    cat "$tmp_invalid"
+    exit 1
+fi
+
+if ./build/cnegc check examples/invalid_if_expr_branch_type.cneg >"$tmp_invalid" 2>&1; then
+    printf 'expected invalid_if_expr_branch_type.cneg to fail\n'
+    exit 1
+fi
+
+if ! grep -q 'E3030' "$tmp_invalid"; then
+    printf 'expected E3030 in invalid_if_expr_branch_type.cneg output\n'
+    cat "$tmp_invalid"
+    exit 1
+fi
+
+if ./build/cnegc check examples/invalid_addr_target.cneg >"$tmp_invalid" 2>&1; then
+    printf 'expected invalid_addr_target.cneg to fail\n'
+    exit 1
+fi
+
+if ! grep -q 'E3031' "$tmp_invalid"; then
+    printf 'expected E3031 in invalid_addr_target.cneg output\n'
+    cat "$tmp_invalid"
+    exit 1
+fi
+
+if ./build/cnegc check examples/invalid_deref_non_ptr.cneg >"$tmp_invalid" 2>&1; then
+    printf 'expected invalid_deref_non_ptr.cneg to fail\n'
+    exit 1
+fi
+
+if ! grep -q 'E3032' "$tmp_invalid"; then
+    printf 'expected E3032 in invalid_deref_non_ptr.cneg output\n'
+    cat "$tmp_invalid"
+    exit 1
+fi
+
+if ./build/cnegc check examples/invalid_assignment_target.cneg >"$tmp_invalid" 2>&1; then
+    printf 'expected invalid_assignment_target.cneg to fail\n'
+    exit 1
+fi
+
+if ! grep -q 'E1006' "$tmp_invalid"; then
+    printf 'expected E1006 in invalid_assignment_target.cneg output\n'
     cat "$tmp_invalid"
     exit 1
 fi
@@ -974,8 +1071,19 @@ if [ "$status" -ne 0 ]; then
     cat "$tmp_run"
     exit 1
 fi
-if ! grep -q '^200$' "$tmp_run"; then
-    printf 'expected valid_u8 binary to print 200\n'
+if ! grep -q '^1$' "$tmp_run"; then
+    printf 'expected valid_u8 binary to print 1\n'
+    cat "$tmp_run"
+    exit 1
+fi
+
+./build/cnegc build examples/valid_if_expr.cneg "$tmp_bin" >"$tmp_valid"
+set +e
+"$tmp_bin" >"$tmp_run"
+status=$?
+set -e
+if [ "$status" -ne 1 ]; then
+    printf 'expected valid_if_expr binary to exit 1, got %d\n' "$status"
     cat "$tmp_run"
     exit 1
 fi

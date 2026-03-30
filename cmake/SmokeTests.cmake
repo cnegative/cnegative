@@ -135,6 +135,7 @@ cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_stdlib_
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_stdlib_math_process.cneg)
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_stdlib_path_fs_extra.cneg)
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_u8.cneg)
+cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_if_expr.cneg)
 
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" bench-lexer examples/valid_basic.cneg 5)
 cn_assert_contains("${TMP_VALID}" "tokens_per_second:")
@@ -196,8 +197,13 @@ cn_assert_contains("${TMP_IR}" "std.path.extension")
 
 cn_run_expect_success("${TMP_IR}" "${CNEGC_BIN}" ir examples/valid_u8.cneg)
 cn_assert_contains("${TMP_IR}" "fn valid_u8.main() -> u8")
-cn_assert_contains("${TMP_IR}" "let alias:u8 = 200;")
-cn_assert_contains("${TMP_IR}" "packet.payload[1] > packet.payload[0]")
+cn_assert_contains("${TMP_IR}" "return if (value == 0) {")
+cn_assert_contains("${TMP_IR}" "packet.kind == 42")
+cn_assert_contains("${TMP_IR}" "packet.payload[1] == 1")
+
+cn_run_expect_success("${TMP_IR}" "${CNEGC_BIN}" ir examples/valid_if_expr.cneg)
+cn_assert_contains("${TMP_IR}" "let picked:int = if flag {")
+cn_assert_contains("${TMP_IR}" "return if (value == 0) {")
 
 cn_run_expect_success("${TMP_LL}" "${CNEGC_BIN}" llvm-ir examples/valid_basic.cneg)
 cn_assert_contains("${TMP_LL}" "@cn_valid_basic__main")
@@ -299,12 +305,35 @@ cn_verify_llvm_ir("${TMP_LL}" "${TMP_BC}")
 
 cn_run_expect_success("${TMP_LL}" "${CNEGC_BIN}" llvm-ir examples/valid_u8.cneg)
 cn_assert_contains("${TMP_LL}" "alloca i8")
-cn_assert_contains("${TMP_LL}" "icmp ugt i8")
+cn_assert_contains("${TMP_LL}" "icmp eq i8")
 cn_assert_contains("${TMP_LL}" "zext i8")
+cn_verify_llvm_ir("${TMP_LL}" "${TMP_BC}")
+
+cn_run_expect_success("${TMP_LL}" "${CNEGC_BIN}" llvm-ir examples/valid_if_expr.cneg)
+cn_assert_contains("${TMP_LL}" "br i1")
+cn_assert_contains("${TMP_LL}" "alloca i64")
 cn_verify_llvm_ir("${TMP_LL}" "${TMP_BC}")
 
 cn_run_expect_failure("${TMP_INVALID}" "${CNEGC_BIN}" check examples/invalid_if_int_condition.cneg)
 cn_assert_contains("${TMP_INVALID}" "E3005")
+
+cn_run_expect_failure("${TMP_INVALID}" "${CNEGC_BIN}" check examples/invalid_if_expr_int_condition.cneg)
+cn_assert_contains("${TMP_INVALID}" "E3005")
+
+cn_run_expect_failure("${TMP_INVALID}" "${CNEGC_BIN}" check examples/invalid_if_expr_void.cneg)
+cn_assert_contains("${TMP_INVALID}" "E3029")
+
+cn_run_expect_failure("${TMP_INVALID}" "${CNEGC_BIN}" check examples/invalid_if_expr_branch_type.cneg)
+cn_assert_contains("${TMP_INVALID}" "E3030")
+
+cn_run_expect_failure("${TMP_INVALID}" "${CNEGC_BIN}" check examples/invalid_addr_target.cneg)
+cn_assert_contains("${TMP_INVALID}" "E3031")
+
+cn_run_expect_failure("${TMP_INVALID}" "${CNEGC_BIN}" check examples/invalid_deref_non_ptr.cneg)
+cn_assert_contains("${TMP_INVALID}" "E3032")
+
+cn_run_expect_failure("${TMP_INVALID}" "${CNEGC_BIN}" check examples/invalid_assignment_target.cneg)
+cn_assert_contains("${TMP_INVALID}" "E1006")
 
 cn_run_expect_failure("${TMP_INVALID}" "${CNEGC_BIN}" check examples/invalid_struct_missing_field.cneg)
 cn_assert_contains("${TMP_INVALID}" "missing field")
@@ -444,4 +473,7 @@ endif()
 
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" build examples/valid_u8.cneg "${TMP_BIN}")
 cn_run_binary("${TMP_RUN}" 0 "" "${TMP_BIN}")
-cn_assert_contains("${TMP_RUN}" "200")
+cn_assert_contains("${TMP_RUN}" "1")
+
+cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" build examples/valid_if_expr.cneg "${TMP_BIN}")
+cn_run_binary("${TMP_RUN}" 1 "" "${TMP_BIN}")

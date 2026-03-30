@@ -364,6 +364,8 @@ static bool cn_llvm_validate_call(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expre
             cn_llvm_call_matches(expression, "std.math", "cube") ||
             cn_llvm_call_matches(expression, "std.math", "is_even") ||
             cn_llvm_call_matches(expression, "std.math", "is_odd") ||
+            cn_llvm_call_matches(expression, "std.x11", "pump") ||
+            cn_llvm_call_matches(expression, "std.x11", "close") ||
             cn_llvm_call_matches(expression, "std.strings", "len") ||
             cn_llvm_call_matches(expression, "std.parse", "to_int") ||
             cn_llvm_call_matches(expression, "std.parse", "to_bool") ||
@@ -415,7 +417,8 @@ static bool cn_llvm_validate_call(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expre
         }
 
         if (cn_llvm_call_matches(expression, "std.math", "clamp") ||
-            cn_llvm_call_matches(expression, "std.math", "between")) {
+            cn_llvm_call_matches(expression, "std.math", "between") ||
+            cn_llvm_call_matches(expression, "std.x11", "open_window")) {
             return cn_llvm_validate_builtin_arguments(ctx, expression, 3, "unexpected builtin stdlib arity");
         }
 
@@ -466,6 +469,10 @@ static bool cn_llvm_validate_expression(cn_llvm_emit_ctx *ctx, const cn_ir_expr 
             return false;
         }
         return true;
+    case CN_IR_EXPR_IF:
+        return cn_llvm_validate_expression(ctx, expression->data.if_expr.condition) &&
+               cn_llvm_validate_expression(ctx, expression->data.if_expr.then_expr) &&
+               cn_llvm_validate_expression(ctx, expression->data.if_expr.else_expr);
     case CN_IR_EXPR_CALL:
         return cn_llvm_validate_call(ctx, expression);
     case CN_IR_EXPR_ARRAY_LITERAL:
@@ -1278,6 +1285,43 @@ static cn_llvm_value cn_llvm_lower_short_circuit(
     return cn_llvm_emit_load(ctx, bool_type, result_ptr);
 }
 
+static cn_llvm_value cn_llvm_lower_if_expression(
+    cn_llvm_function_ctx *ctx,
+    cn_llvm_scope *scope,
+    const cn_ir_expr *expression
+) {
+    int result_ptr = cn_llvm_emit_alloca(ctx, expression->type);
+    int then_label = cn_llvm_next_label(ctx);
+    int else_label = cn_llvm_next_label(ctx);
+    int merge_label = cn_llvm_next_label(ctx);
+
+    cn_llvm_value condition = cn_llvm_lower_expression(ctx, scope, expression->data.if_expr.condition);
+    if (!condition.is_valid) {
+        return cn_llvm_invalid_value(expression->type);
+    }
+
+    cn_llvm_emit_cond_br(ctx, condition, then_label, else_label);
+
+    cn_llvm_emit_label(ctx, then_label);
+    cn_llvm_value then_value = cn_llvm_lower_expression(ctx, scope, expression->data.if_expr.then_expr);
+    if (!then_value.is_valid) {
+        return cn_llvm_invalid_value(expression->type);
+    }
+    cn_llvm_emit_store(ctx, then_value, result_ptr);
+    cn_llvm_emit_br(ctx, merge_label);
+
+    cn_llvm_emit_label(ctx, else_label);
+    cn_llvm_value else_value = cn_llvm_lower_expression(ctx, scope, expression->data.if_expr.else_expr);
+    if (!else_value.is_valid) {
+        return cn_llvm_invalid_value(expression->type);
+    }
+    cn_llvm_emit_store(ctx, else_value, result_ptr);
+    cn_llvm_emit_br(ctx, merge_label);
+
+    cn_llvm_emit_label(ctx, merge_label);
+    return cn_llvm_emit_load(ctx, expression->type, result_ptr);
+}
+
 static const cn_llvm_string_entry *cn_llvm_find_string(const cn_llvm_emit_ctx *ctx, cn_strview value) {
     for (const cn_llvm_string_entry *entry = ctx->strings; entry != NULL; entry = entry->next) {
         if (cn_sv_eq(entry->value, value)) {
@@ -1619,6 +1663,18 @@ static cn_llvm_value cn_llvm_lower_builtin_call(cn_llvm_function_ctx *ctx, cn_ll
 
     if (cn_llvm_call_matches(expression, "std.math", "between")) {
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_math_between", arguments, 3);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.x11", "open_window")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_x11_open_window", arguments, 3);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.x11", "pump")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_x11_pump", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.x11", "close")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_x11_close", arguments, 1);
     }
 
     if (cn_llvm_call_matches(expression, "std.net", "is_ipv4")) {
@@ -1982,6 +2038,8 @@ static cn_llvm_value cn_llvm_lower_expression(cn_llvm_function_ctx *ctx, cn_llvm
         fputc('\n', ctx->emit->stream);
         return cn_llvm_register_value(expression->type, reg_id);
     }
+    case CN_IR_EXPR_IF:
+        return cn_llvm_lower_if_expression(ctx, scope, expression);
     case CN_IR_EXPR_CALL:
         return cn_llvm_lower_call(ctx, scope, expression);
     case CN_IR_EXPR_ARRAY_LITERAL:
@@ -2347,6 +2405,10 @@ static bool cn_llvm_collect_strings_from_expression(cn_llvm_emit_ctx *ctx, const
     case CN_IR_EXPR_BINARY:
         return cn_llvm_collect_strings_from_expression(ctx, expression->data.binary.left) &&
                cn_llvm_collect_strings_from_expression(ctx, expression->data.binary.right);
+    case CN_IR_EXPR_IF:
+        return cn_llvm_collect_strings_from_expression(ctx, expression->data.if_expr.condition) &&
+               cn_llvm_collect_strings_from_expression(ctx, expression->data.if_expr.then_expr) &&
+               cn_llvm_collect_strings_from_expression(ctx, expression->data.if_expr.else_expr);
     case CN_IR_EXPR_CALL:
         for (size_t i = 0; i < expression->data.call.arguments.count; ++i) {
             if (!cn_llvm_collect_strings_from_expression(ctx, expression->data.call.arguments.items[i])) {
@@ -2530,6 +2592,134 @@ static void cn_llvm_emit_string_globals(const cn_llvm_emit_ctx *ctx, FILE *strea
     }
 }
 
+static bool cn_llvm_expr_uses_builtin_module(const cn_ir_expr *expression, const char *module_name) {
+    if (expression == NULL) {
+        return false;
+    }
+
+    switch (expression->kind) {
+    case CN_IR_EXPR_UNARY:
+        return cn_llvm_expr_uses_builtin_module(expression->data.unary.operand, module_name);
+    case CN_IR_EXPR_BINARY:
+        return cn_llvm_expr_uses_builtin_module(expression->data.binary.left, module_name) ||
+               cn_llvm_expr_uses_builtin_module(expression->data.binary.right, module_name);
+    case CN_IR_EXPR_IF:
+        return cn_llvm_expr_uses_builtin_module(expression->data.if_expr.condition, module_name) ||
+               cn_llvm_expr_uses_builtin_module(expression->data.if_expr.then_expr, module_name) ||
+               cn_llvm_expr_uses_builtin_module(expression->data.if_expr.else_expr, module_name);
+    case CN_IR_EXPR_CALL:
+        if (expression->data.call.target_kind == CN_IR_CALL_BUILTIN &&
+            cn_sv_eq_cstr(expression->data.call.module_name, module_name)) {
+            return true;
+        }
+        for (size_t i = 0; i < expression->data.call.arguments.count; ++i) {
+            if (cn_llvm_expr_uses_builtin_module(expression->data.call.arguments.items[i], module_name)) {
+                return true;
+            }
+        }
+        return false;
+    case CN_IR_EXPR_ARRAY_LITERAL:
+        for (size_t i = 0; i < expression->data.array_literal.items.count; ++i) {
+            if (cn_llvm_expr_uses_builtin_module(expression->data.array_literal.items.items[i], module_name)) {
+                return true;
+            }
+        }
+        return false;
+    case CN_IR_EXPR_INDEX:
+        return cn_llvm_expr_uses_builtin_module(expression->data.index.base, module_name) ||
+               cn_llvm_expr_uses_builtin_module(expression->data.index.index, module_name);
+    case CN_IR_EXPR_FIELD:
+        return cn_llvm_expr_uses_builtin_module(expression->data.field.base, module_name);
+    case CN_IR_EXPR_STRUCT_LITERAL:
+        for (size_t i = 0; i < expression->data.struct_literal.fields.count; ++i) {
+            if (cn_llvm_expr_uses_builtin_module(expression->data.struct_literal.fields.items[i].value, module_name)) {
+                return true;
+            }
+        }
+        return false;
+    case CN_IR_EXPR_OK:
+        return cn_llvm_expr_uses_builtin_module(expression->data.ok_expr.value, module_name);
+    case CN_IR_EXPR_ADDR:
+        return cn_llvm_expr_uses_builtin_module(expression->data.addr_expr.target, module_name);
+    case CN_IR_EXPR_DEREF:
+        return cn_llvm_expr_uses_builtin_module(expression->data.deref_expr.target, module_name);
+    case CN_IR_EXPR_INT:
+    case CN_IR_EXPR_BOOL:
+    case CN_IR_EXPR_STRING:
+    case CN_IR_EXPR_LOCAL:
+    case CN_IR_EXPR_ERR:
+    case CN_IR_EXPR_ALLOC:
+        return false;
+    }
+
+    return false;
+}
+
+static bool cn_llvm_stmt_uses_builtin_module(const cn_ir_stmt *statement, const char *module_name);
+
+static bool cn_llvm_block_uses_builtin_module(const cn_ir_block *block, const char *module_name) {
+    if (block == NULL) {
+        return false;
+    }
+
+    for (size_t i = 0; i < block->statements.count; ++i) {
+        if (cn_llvm_stmt_uses_builtin_module(block->statements.items[i], module_name)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool cn_llvm_stmt_uses_builtin_module(const cn_ir_stmt *statement, const char *module_name) {
+    switch (statement->kind) {
+    case CN_IR_STMT_LET:
+        return cn_llvm_expr_uses_builtin_module(statement->data.let_stmt.initializer, module_name);
+    case CN_IR_STMT_ASSIGN:
+        return cn_llvm_expr_uses_builtin_module(statement->data.assign_stmt.target, module_name) ||
+               cn_llvm_expr_uses_builtin_module(statement->data.assign_stmt.value, module_name);
+    case CN_IR_STMT_RETURN:
+        return cn_llvm_expr_uses_builtin_module(statement->data.return_stmt.value, module_name);
+    case CN_IR_STMT_EXPR:
+        return cn_llvm_expr_uses_builtin_module(statement->data.expr_stmt.value, module_name);
+    case CN_IR_STMT_IF:
+        return cn_llvm_expr_uses_builtin_module(statement->data.if_stmt.condition, module_name) ||
+               cn_llvm_block_uses_builtin_module(statement->data.if_stmt.then_block, module_name) ||
+               cn_llvm_block_uses_builtin_module(statement->data.if_stmt.else_block, module_name);
+    case CN_IR_STMT_WHILE:
+        return cn_llvm_expr_uses_builtin_module(statement->data.while_stmt.condition, module_name) ||
+               cn_llvm_block_uses_builtin_module(statement->data.while_stmt.body, module_name);
+    case CN_IR_STMT_LOOP:
+        return cn_llvm_block_uses_builtin_module(statement->data.loop_stmt.body, module_name);
+    case CN_IR_STMT_FOR:
+        return cn_llvm_expr_uses_builtin_module(statement->data.for_stmt.start, module_name) ||
+               cn_llvm_expr_uses_builtin_module(statement->data.for_stmt.end, module_name) ||
+               cn_llvm_block_uses_builtin_module(statement->data.for_stmt.body, module_name);
+    case CN_IR_STMT_FREE:
+        return cn_llvm_expr_uses_builtin_module(statement->data.free_stmt.value, module_name);
+    }
+
+    return false;
+}
+
+static bool cn_llvm_program_uses_builtin_module(const cn_ir_program *program, const char *module_name) {
+    for (size_t i = 0; i < program->modules.count; ++i) {
+        const cn_ir_module *module = program->modules.items[i];
+        for (size_t j = 0; j < module->consts.count; ++j) {
+            if (cn_llvm_expr_uses_builtin_module(module->consts.items[j]->initializer, module_name)) {
+                return true;
+            }
+        }
+        for (size_t j = 0; j < module->functions.count; ++j) {
+            if (cn_llvm_block_uses_builtin_module(module->functions.items[j]->body, module_name)) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
 static const cn_ir_function *cn_llvm_find_entry_function(const cn_ir_program *program) {
     if (program->modules.count == 0) {
         return NULL;
@@ -2609,6 +2799,8 @@ bool cn_backend_emit_llvm_ir(
     ctx.strings = NULL;
     ctx.next_string_id = 0;
 
+    bool use_x11 = cn_llvm_program_uses_builtin_module(program, "std.x11");
+
     if (!cn_llvm_collect_program_strings(&ctx)) {
         cn_llvm_release_strings(&ctx);
         return false;
@@ -2636,7 +2828,7 @@ bool cn_backend_emit_llvm_ir(
     if (ctx.strings != NULL) {
         fputc('\n', stream);
     }
-    cn_llvm_emit_runtime_prelude(stream);
+    cn_llvm_emit_runtime_prelude(stream, use_x11);
     fputs("\n\n", stream);
     if (!cn_llvm_emit_entry_wrapper(&ctx)) {
         cn_llvm_release_strings(&ctx);

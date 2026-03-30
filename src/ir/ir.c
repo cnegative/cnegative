@@ -367,6 +367,11 @@ static void cn_ir_expr_destroy(cn_allocator *allocator, cn_ir_expr *expression) 
         cn_ir_expr_destroy(allocator, expression->data.binary.left);
         cn_ir_expr_destroy(allocator, expression->data.binary.right);
         break;
+    case CN_IR_EXPR_IF:
+        cn_ir_expr_destroy(allocator, expression->data.if_expr.condition);
+        cn_ir_expr_destroy(allocator, expression->data.if_expr.then_expr);
+        cn_ir_expr_destroy(allocator, expression->data.if_expr.else_expr);
+        break;
     case CN_IR_EXPR_CALL:
         for (size_t i = 0; i < expression->data.call.arguments.count; ++i) {
             cn_ir_expr_destroy(allocator, expression->data.call.arguments.items[i]);
@@ -633,6 +638,15 @@ static void cn_ir_dump_expr(FILE *stream, const cn_ir_expr *expression) {
         fprintf(stream, " %s ", cn_ir_binary_op_name(expression->data.binary.op));
         cn_ir_dump_expr(stream, expression->data.binary.right);
         fputc(')', stream);
+        break;
+    case CN_IR_EXPR_IF:
+        fputs("if ", stream);
+        cn_ir_dump_expr(stream, expression->data.if_expr.condition);
+        fputs(" { ", stream);
+        cn_ir_dump_expr(stream, expression->data.if_expr.then_expr);
+        fputs(" } else { ", stream);
+        cn_ir_dump_expr(stream, expression->data.if_expr.else_expr);
+        fputs(" }", stream);
         break;
     case CN_IR_EXPR_CALL:
         cn_ir_dump_call_target(stream, expression);

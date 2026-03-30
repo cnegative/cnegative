@@ -98,6 +98,7 @@ typedef enum cn_expr_kind {
     CN_EXPR_NAME,
     CN_EXPR_UNARY,
     CN_EXPR_BINARY,
+    CN_EXPR_IF,
     CN_EXPR_CALL,
     CN_EXPR_ARRAY_LITERAL,
     CN_EXPR_INDEX,
@@ -133,6 +134,11 @@ struct cn_expr {
             cn_expr *left;
             cn_expr *right;
         } binary;
+        struct {
+            cn_expr *condition;
+            cn_expr *then_expr;
+            cn_expr *else_expr;
+        } if_expr;
         struct {
             cn_expr *callee;
             cn_expr_list arguments;

@@ -185,6 +185,134 @@ static bool cn_backend_run_clang_stage(
     return true;
 }
 
+static bool cn_backend_expr_uses_builtin_module(const cn_ir_expr *expression, const char *module_name);
+static bool cn_backend_block_uses_builtin_module(const cn_ir_block *block, const char *module_name);
+
+static bool cn_backend_expr_list_uses_builtin_module(const cn_ir_expr_list *list, const char *module_name) {
+    for (size_t i = 0; i < list->count; ++i) {
+        if (cn_backend_expr_uses_builtin_module(list->items[i], module_name)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool cn_backend_expr_uses_builtin_module(const cn_ir_expr *expression, const char *module_name) {
+    if (expression == NULL) {
+        return false;
+    }
+
+    switch (expression->kind) {
+    case CN_IR_EXPR_UNARY:
+        return cn_backend_expr_uses_builtin_module(expression->data.unary.operand, module_name);
+    case CN_IR_EXPR_BINARY:
+        return cn_backend_expr_uses_builtin_module(expression->data.binary.left, module_name) ||
+               cn_backend_expr_uses_builtin_module(expression->data.binary.right, module_name);
+    case CN_IR_EXPR_IF:
+        return cn_backend_expr_uses_builtin_module(expression->data.if_expr.condition, module_name) ||
+               cn_backend_expr_uses_builtin_module(expression->data.if_expr.then_expr, module_name) ||
+               cn_backend_expr_uses_builtin_module(expression->data.if_expr.else_expr, module_name);
+    case CN_IR_EXPR_CALL:
+        return (expression->data.call.target_kind == CN_IR_CALL_BUILTIN &&
+                cn_sv_eq_cstr(expression->data.call.module_name, module_name)) ||
+               cn_backend_expr_list_uses_builtin_module(&expression->data.call.arguments, module_name);
+    case CN_IR_EXPR_ARRAY_LITERAL:
+        return cn_backend_expr_list_uses_builtin_module(&expression->data.array_literal.items, module_name);
+    case CN_IR_EXPR_INDEX:
+        return cn_backend_expr_uses_builtin_module(expression->data.index.base, module_name) ||
+               cn_backend_expr_uses_builtin_module(expression->data.index.index, module_name);
+    case CN_IR_EXPR_FIELD:
+        return cn_backend_expr_uses_builtin_module(expression->data.field.base, module_name);
+    case CN_IR_EXPR_STRUCT_LITERAL:
+        for (size_t i = 0; i < expression->data.struct_literal.fields.count; ++i) {
+            if (cn_backend_expr_uses_builtin_module(expression->data.struct_literal.fields.items[i].value, module_name)) {
+                return true;
+            }
+        }
+        return false;
+    case CN_IR_EXPR_OK:
+        return cn_backend_expr_uses_builtin_module(expression->data.ok_expr.value, module_name);
+    case CN_IR_EXPR_ERR:
+        return false;
+    case CN_IR_EXPR_ADDR:
+        return cn_backend_expr_uses_builtin_module(expression->data.addr_expr.target, module_name);
+    case CN_IR_EXPR_DEREF:
+        return cn_backend_expr_uses_builtin_module(expression->data.deref_expr.target, module_name);
+    case CN_IR_EXPR_INT:
+    case CN_IR_EXPR_BOOL:
+    case CN_IR_EXPR_STRING:
+    case CN_IR_EXPR_LOCAL:
+    case CN_IR_EXPR_ALLOC:
+        return false;
+    }
+
+    return false;
+}
+
+static bool cn_backend_stmt_uses_builtin_module(const cn_ir_stmt *statement, const char *module_name) {
+    switch (statement->kind) {
+    case CN_IR_STMT_LET:
+        return cn_backend_expr_uses_builtin_module(statement->data.let_stmt.initializer, module_name);
+    case CN_IR_STMT_ASSIGN:
+        return cn_backend_expr_uses_builtin_module(statement->data.assign_stmt.target, module_name) ||
+               cn_backend_expr_uses_builtin_module(statement->data.assign_stmt.value, module_name);
+    case CN_IR_STMT_RETURN:
+        return cn_backend_expr_uses_builtin_module(statement->data.return_stmt.value, module_name);
+    case CN_IR_STMT_EXPR:
+        return cn_backend_expr_uses_builtin_module(statement->data.expr_stmt.value, module_name);
+    case CN_IR_STMT_IF:
+        return cn_backend_expr_uses_builtin_module(statement->data.if_stmt.condition, module_name) ||
+               cn_backend_block_uses_builtin_module(statement->data.if_stmt.then_block, module_name) ||
+               cn_backend_block_uses_builtin_module(statement->data.if_stmt.else_block, module_name);
+    case CN_IR_STMT_WHILE:
+        return cn_backend_expr_uses_builtin_module(statement->data.while_stmt.condition, module_name) ||
+               cn_backend_block_uses_builtin_module(statement->data.while_stmt.body, module_name);
+    case CN_IR_STMT_LOOP:
+        return cn_backend_block_uses_builtin_module(statement->data.loop_stmt.body, module_name);
+    case CN_IR_STMT_FOR:
+        return cn_backend_expr_uses_builtin_module(statement->data.for_stmt.start, module_name) ||
+               cn_backend_expr_uses_builtin_module(statement->data.for_stmt.end, module_name) ||
+               cn_backend_block_uses_builtin_module(statement->data.for_stmt.body, module_name);
+    case CN_IR_STMT_FREE:
+        return cn_backend_expr_uses_builtin_module(statement->data.free_stmt.value, module_name);
+    }
+
+    return false;
+}
+
+static bool cn_backend_block_uses_builtin_module(const cn_ir_block *block, const char *module_name) {
+    if (block == NULL) {
+        return false;
+    }
+
+    for (size_t i = 0; i < block->statements.count; ++i) {
+        if (cn_backend_stmt_uses_builtin_module(block->statements.items[i], module_name)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool cn_backend_program_uses_builtin_module(const cn_ir_program *program, const char *module_name) {
+    for (size_t i = 0; i < program->modules.count; ++i) {
+        const cn_ir_module *module = program->modules.items[i];
+        for (size_t j = 0; j < module->consts.count; ++j) {
+            if (cn_backend_expr_uses_builtin_module(module->consts.items[j]->initializer, module_name)) {
+                return true;
+            }
+        }
+        for (size_t j = 0; j < module->functions.count; ++j) {
+            if (cn_backend_block_uses_builtin_module(module->functions.items[j]->body, module_name)) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
 static bool cn_backend_compile_ir_to_object(const char *ir_path, const char *object_path, cn_diag_bag *diagnostics) {
     char *clang18_argv[] = {
         "clang-18",
@@ -216,7 +344,12 @@ static bool cn_backend_compile_ir_to_object(const char *ir_path, const char *obj
     );
 }
 
-static bool cn_backend_link_object_to_binary(const char *object_path, const char *binary_path, cn_diag_bag *diagnostics) {
+static bool cn_backend_link_object_to_binary(
+    const cn_ir_program *program,
+    const char *object_path,
+    const char *binary_path,
+    cn_diag_bag *diagnostics
+) {
 #ifdef _WIN32
     char *clang18_argv[] = {
         "clang-18",
@@ -235,11 +368,13 @@ static bool cn_backend_link_object_to_binary(const char *object_path, const char
         NULL
     };
 #else
+    bool use_x11 = cn_backend_program_uses_builtin_module(program, "std.x11");
     char *clang18_argv[] = {
         "clang-18",
         (char *)object_path,
         "-o",
         (char *)binary_path,
+        use_x11 ? "-lX11" : NULL,
         NULL
     };
     char *clang_argv[] = {
@@ -247,6 +382,7 @@ static bool cn_backend_link_object_to_binary(const char *object_path, const char
         (char *)object_path,
         "-o",
         (char *)binary_path,
+        use_x11 ? "-lX11" : NULL,
         NULL
     };
 #endif
@@ -299,7 +435,7 @@ bool cn_backend_build_binary(
     }
 
     ok = cn_backend_compile_ir_to_object(ir_path, object_path, diagnostics) &&
-         cn_backend_link_object_to_binary(object_path, output_path, diagnostics);
+         cn_backend_link_object_to_binary(program, object_path, output_path, diagnostics);
 
     cn_backend_delete_file(ir_path);
     cn_backend_delete_file(object_path);

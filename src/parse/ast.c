@@ -354,6 +354,11 @@ static void cn_expr_destroy(cn_allocator *allocator, cn_expr *expression) {
         cn_expr_destroy(allocator, expression->data.binary.left);
         cn_expr_destroy(allocator, expression->data.binary.right);
         break;
+    case CN_EXPR_IF:
+        cn_expr_destroy(allocator, expression->data.if_expr.condition);
+        cn_expr_destroy(allocator, expression->data.if_expr.then_expr);
+        cn_expr_destroy(allocator, expression->data.if_expr.else_expr);
+        break;
     case CN_EXPR_CALL:
         cn_expr_destroy(allocator, expression->data.call.callee);
         for (size_t i = 0; i < expression->data.call.arguments.count; ++i) {

@@ -21,7 +21,7 @@ build/cnegc build examples/valid_basic.cneg
 - Struct literals, array literals, field access, indexing, `alloc`, `addr`, `deref`, `free`, `ok`, `err`, `.ok`, and guarded `.value`.
 - Module-level constants lowered after typed IR folding and canonicalization.
 - `print(...)`, `input()`, `str_copy(...)`, `str_concat(...)`, and string equality lowered through embedded LLVM runtime helpers backed by libc.
-- `std.math`, `std.strings`, `std.parse`, `std.fs`, `std.io`, `std.time`, `std.env`, `std.path`, `std.net`, and `std.process` lowered through embedded LLVM runtime helpers backed by libc.
+- `std.math`, `std.strings`, `std.parse`, `std.fs`, `std.io`, `std.time`, `std.env`, `std.path`, `std.net`, `std.process`, and the experimental Linux-only `std.x11` lowered through embedded LLVM runtime helpers backed by libc or the host platform APIs.
 - Object emission and binary linking through `clang-18` or `clang`.
 - The emitted module target triple is selected from the host build target instead of being hardcoded to Linux.
 
@@ -42,7 +42,14 @@ build/cnegc build examples/valid_basic.cneg
 - Linux and macOS use POSIX/BSD socket calls in the emitted runtime, while Windows lowers through Winsock and links `ws2_32`.
 - `std.net.recv(...)` returns an owned runtime string on success, and successful `std.net.udp_recv_from(...)` results contain owned `host` and `data` strings inside `std.net.UdpPacket`. Current socket/listener handles are surfaced to the language as raw `int` values.
 - `std.process.platform(...)` and `std.process.arch(...)` return owned copies of target strings, and `std.process.exit(...)` lowers to a runtime exit helper.
+- The experimental Linux-only `std.x11.open_window(...)`, `std.x11.pump(...)`, and `std.x11.close(...)` calls lower to embedded X11 runtime helpers. When typed IR uses `std.x11`, the backend auto-links `-lX11`.
 - `u8` lowers as LLVM `i8`, `byte` is parsed as an alias for `u8`, matching `u8` comparisons lower with unsigned predicates, and printing `u8` widens through the runtime print helper.
 - `free some_string;` lowers to a tracked string-free helper so owned runtime strings can be released safely without freeing string literals.
+
+## Backend Implementation Notes
+
+- Builtin stdlib validation and lowering currently live in `src/backend/llvm_text.c`.
+- Embedded runtime helper emission is split by domain under `src/backend/stdlib/`.
+- The experimental Linux-only X11 runtime helpers currently live in `src/backend/stdlib/x11.c`.
 
 Unsupported lowering reports `E3021` before any LLVM IR text is printed.

@@ -62,6 +62,7 @@ typedef enum cn_ir_expr_kind {
     CN_IR_EXPR_LOCAL,
     CN_IR_EXPR_UNARY,
     CN_IR_EXPR_BINARY,
+    CN_IR_EXPR_IF,
     CN_IR_EXPR_CALL,
     CN_IR_EXPR_ARRAY_LITERAL,
     CN_IR_EXPR_INDEX,
@@ -117,6 +118,11 @@ struct cn_ir_expr {
             cn_ir_expr *left;
             cn_ir_expr *right;
         } binary;
+        struct {
+            cn_ir_expr *condition;
+            cn_ir_expr *then_expr;
+            cn_ir_expr *else_expr;
+        } if_expr;
         struct {
             cn_ir_call_target_kind target_kind;
             cn_strview module_name;

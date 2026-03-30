@@ -4,7 +4,7 @@
 
 It is being shaped as a good place to start before jumping into C, C++, or lower-level systems programming directly. The goal is to keep the language explicit and low-level, while making the surface easier to read, reason about, and modify.
 
-Current project status: `v0.3.1`
+Current project status: `v0.3.2`
 
 This repository currently ships the `cnegc` compiler with:
 
@@ -73,12 +73,14 @@ Implemented today:
 - `int`, `u8`, `bool`, `str`, `void`, `ptr`, and `result`
 - `byte` as a readable alias for `u8`
 - `if`, `else`, `while`, `loop`, and range `for`
+- narrow value-producing `if` expressions in the form `if cond { expr } else { expr }`
 - structs and public structs
 - arrays
 - field access and indexing
 - module imports and module-qualified public calls
-- initial stdlib modules: `std.math`, `std.strings`, `std.parse`, `std.fs`, `std.io`, `std.time`, `std.env`, `std.path`, `std.net`, and `std.process`
+- initial stdlib modules: `std.math`, `std.strings`, `std.parse`, `std.fs`, `std.io`, `std.time`, `std.env`, `std.path`, `std.net`, `std.process`, and the experimental Linux-only `std.x11`
 - beginner-first blocking IPv4 TCP and UDP helpers in `std.net`
+- a tiny real-window stress-test path through the experimental Linux-only `std.x11`
 - `alloc`, `addr`, `deref`, `free`, `ok`, `err`, `print`, and `input`
 - `str_copy` and `str_concat`
 - typed IR lowering
@@ -95,6 +97,7 @@ Current integer rule:
 - `u8` is a real primitive byte-sized value type
 - `byte` is an alias for `u8`
 - integer literals fit into `u8` automatically when a `u8` is expected
+- fitting integer literals also compare cleanly against `u8` and `byte` values
 - arithmetic stays `int`-only for now
 - equality and ordered comparisons work for matching `u8` values
 

@@ -705,8 +705,33 @@ static cn_ir_expr *cn_ir_lower_expression(cn_ir_lower_ctx *ctx, cn_ir_scope *sco
         return ir_expression;
     }
     case CN_EXPR_BINARY: {
-        cn_ir_expr *left = cn_ir_lower_expression(ctx, scope, expression->data.binary.left, NULL);
-        cn_ir_expr *right = cn_ir_lower_expression(ctx, scope, expression->data.binary.right, NULL);
+        cn_ir_expr *left = NULL;
+        cn_ir_expr *right = NULL;
+
+        if (expression->data.binary.left->kind == CN_EXPR_INT &&
+            expression->data.binary.right->kind != CN_EXPR_INT) {
+            right = cn_ir_lower_expression(ctx, scope, expression->data.binary.right, NULL);
+            if (right == NULL) {
+                return NULL;
+            }
+
+            const cn_ir_type *left_expected =
+                right->type->kind == CN_IR_TYPE_U8 ? right->type : NULL;
+            left = cn_ir_lower_expression(ctx, scope, expression->data.binary.left, left_expected);
+        } else {
+            left = cn_ir_lower_expression(ctx, scope, expression->data.binary.left, NULL);
+            if (left == NULL) {
+                return NULL;
+            }
+
+            const cn_ir_type *right_expected =
+                (expression->data.binary.right->kind == CN_EXPR_INT &&
+                 left->type->kind == CN_IR_TYPE_U8)
+                    ? left->type
+                    : NULL;
+            right = cn_ir_lower_expression(ctx, scope, expression->data.binary.right, right_expected);
+        }
+
         if (left == NULL || right == NULL) {
             return NULL;
         }
@@ -735,6 +760,38 @@ static cn_ir_expr *cn_ir_lower_expression(cn_ir_lower_ctx *ctx, cn_ir_scope *sco
             ir_expression->type = cn_ir_make_builtin_type(ctx->allocator, CN_IR_TYPE_BOOL);
             break;
         }
+        return ir_expression;
+    }
+    case CN_EXPR_IF: {
+        cn_ir_expr *condition = cn_ir_lower_with_builtin_expected(
+            ctx,
+            scope,
+            expression->data.if_expr.condition,
+            CN_IR_TYPE_BOOL
+        );
+        if (condition == NULL) {
+            return NULL;
+        }
+
+        cn_ir_expr *then_expr = cn_ir_lower_expression(ctx, scope, expression->data.if_expr.then_expr, expected);
+        if (then_expr == NULL) {
+            return NULL;
+        }
+
+        const cn_ir_type *branch_expected = expected != NULL ? expected : then_expr->type;
+        cn_ir_expr *else_expr = cn_ir_lower_expression(ctx, scope, expression->data.if_expr.else_expr, branch_expected);
+        if (else_expr == NULL) {
+            return NULL;
+        }
+
+        ir_expression = cn_ir_expr_create(ctx->allocator, CN_IR_EXPR_IF, expression->offset);
+        ir_expression->data.if_expr.condition = condition;
+        ir_expression->data.if_expr.then_expr = then_expr;
+        ir_expression->data.if_expr.else_expr = else_expr;
+        ir_expression->type = cn_ir_type_clone(
+            ctx->allocator,
+            expected != NULL ? expected : then_expr->type
+        );
         return ir_expression;
     }
     case CN_EXPR_CALL:
