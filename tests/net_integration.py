@@ -109,6 +109,13 @@ for run_index in range(repetitions):
 """
 
 
+def _exe(path: str) -> str:
+    """Append .exe on Windows if not already present."""
+    if sys.platform == "win32" and not path.endswith(".exe"):
+        return path + ".exe"
+    return path
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Optional Python-based blocking network integration test for cnegative.")
     parser.add_argument("--main-binary", default="build/net-main-python", help="Path to the already-built compile-only networking binary.")
@@ -124,18 +131,18 @@ def main() -> int:
     repo_root = Path(__file__).resolve().parent.parent
     os.chdir(repo_root)
 
-    for binary_path in (Path(args.main_binary), Path(args.server_binary), Path(args.client_binary)):
+    for binary_path in (Path(_exe(args.main_binary)), Path(_exe(args.server_binary)), Path(_exe(args.client_binary))):
         if not binary_path.exists():
             raise SystemExit(f"expected built binary before running net integration: {binary_path}")
 
     runner_env = dict(os.environ)
-    runner_env["CNEGATIVE_NET_MAIN_BINARY"] = args.main_binary
-    runner_env["CNEGATIVE_NET_SERVER_BINARY"] = args.server_binary
-    runner_env["CNEGATIVE_NET_CLIENT_BINARY"] = args.client_binary
-    runner_env["CNEGATIVE_NET_REPETITIONS"] = str(args.repetitions)
-    runner_env["CNEGATIVE_NET_SETTLE_SECONDS"] = str(args.settle_seconds)
+    runner_env["CNEGATIVE_NET_MAIN_BINARY"]   = _exe(args.main_binary)
+    runner_env["CNEGATIVE_NET_SERVER_BINARY"] = _exe(args.server_binary)
+    runner_env["CNEGATIVE_NET_CLIENT_BINARY"] = _exe(args.client_binary)
+    runner_env["CNEGATIVE_NET_REPETITIONS"]   = str(args.repetitions)
+    runner_env["CNEGATIVE_NET_SETTLE_SECONDS"]  = str(args.settle_seconds)
     runner_env["CNEGATIVE_NET_TIMEOUT_SECONDS"] = str(args.timeout_seconds)
-    runner_env["CNEGATIVE_NET_BASE_PORT"] = str(args.base_port)
+    runner_env["CNEGATIVE_NET_BASE_PORT"]     = str(args.base_port)
     runner_env["CNEGATIVE_NET_PORT_ATTEMPTS"] = str(args.port_attempts)
 
     completed = subprocess.run([sys.executable, "-c", RUNNER], env=runner_env, check=False)
