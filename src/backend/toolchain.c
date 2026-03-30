@@ -351,6 +351,7 @@ static bool cn_backend_link_object_to_binary(
     cn_diag_bag *diagnostics
 ) {
 #ifdef _WIN32
+    (void)program;
     char *clang18_argv[] = {
         "clang-18",
         (char *)object_path,
