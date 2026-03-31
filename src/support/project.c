@@ -74,6 +74,16 @@ static cn_type_ref *cn_builtin_result_wrapped_type(cn_allocator *allocator, cn_t
     );
 }
 
+static cn_type_ref *cn_builtin_ptr_type(cn_allocator *allocator, cn_type_ref *inner) {
+    return cn_type_create(
+        allocator,
+        CN_TYPE_PTR,
+        cn_sv_from_cstr("ptr"),
+        inner,
+        0
+    );
+}
+
 static cn_function *cn_builtin_function_create(
     cn_allocator *allocator,
     const char *name,
@@ -100,6 +110,21 @@ static cn_struct_decl *cn_builtin_struct_create(cn_allocator *allocator, const c
     struct_decl->is_public = true;
     struct_decl->name = cn_sv_from_cstr(name);
     return struct_decl;
+}
+
+static cn_expr *cn_builtin_int_expr(cn_allocator *allocator, int64_t value) {
+    cn_expr *expression = cn_expr_create(allocator, CN_EXPR_INT, 0);
+    expression->data.int_value = value;
+    return expression;
+}
+
+static cn_const_decl *cn_builtin_const_int_create(cn_allocator *allocator, const char *name, int64_t value) {
+    cn_const_decl *const_decl = cn_const_decl_create(allocator, 0);
+    const_decl->is_public = true;
+    const_decl->name = cn_sv_from_cstr(name);
+    const_decl->type = cn_builtin_primitive_type(allocator, CN_TYPE_INT);
+    const_decl->initializer = cn_builtin_int_expr(allocator, value);
+    return const_decl;
 }
 
 static void cn_builtin_push_struct_field(
@@ -130,6 +155,7 @@ static bool cn_is_builtin_stdlib_module_name(cn_strview module_name) {
            cn_sv_eq_cstr(module_name, "std.parse") ||
            cn_sv_eq_cstr(module_name, "std.fs") ||
            cn_sv_eq_cstr(module_name, "std.io") ||
+           cn_sv_eq_cstr(module_name, "std.term") ||
            cn_sv_eq_cstr(module_name, "std.time") ||
            cn_sv_eq_cstr(module_name, "std.env") ||
            cn_sv_eq_cstr(module_name, "std.path") ||
@@ -315,6 +341,351 @@ static cn_program *cn_builtin_stdlib_program(cn_allocator *allocator, const char
 
         cn_function *read_line = cn_builtin_function_create(allocator, "read_line", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
         cn_program_push_function(program, read_line);
+        return program;
+    }
+
+    if (strcmp(module_name, "std.term") == 0) {
+        cn_struct_decl *cell = cn_builtin_struct_create(allocator, "Cell");
+        cn_builtin_push_struct_field(allocator, cell, "code", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_struct_field(allocator, cell, "fg", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_struct_field(allocator, cell, "bg", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_struct_field(allocator, cell, "attrs", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_struct_field(allocator, cell, "wide", cn_builtin_primitive_type(allocator, CN_TYPE_BOOL));
+        cn_program_push_struct(program, cell);
+
+        cn_struct_decl *buffer = cn_builtin_struct_create(allocator, "Buffer");
+        cn_builtin_push_struct_field(allocator, buffer, "width", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_struct_field(allocator, buffer, "height", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_struct_field(
+            allocator,
+            buffer,
+            "cells",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.term", "Cell"))
+        );
+        cn_program_push_struct(program, buffer);
+
+        cn_struct_decl *clip = cn_builtin_struct_create(allocator, "Clip");
+        cn_builtin_push_struct_field(allocator, clip, "row", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_struct_field(allocator, clip, "column", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_struct_field(allocator, clip, "height", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_struct_field(allocator, clip, "width", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_struct(program, clip);
+
+        cn_struct_decl *event = cn_builtin_struct_create(allocator, "Event");
+        cn_builtin_push_struct_field(allocator, event, "kind", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_struct_field(allocator, event, "code", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_struct_field(allocator, event, "modifiers", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_struct_field(allocator, event, "row", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_struct_field(allocator, event, "column", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_struct(program, event);
+
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "EVENT_KEY", 1));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "EVENT_MOUSE", 2));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "EVENT_RESIZE", 3));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "EVENT_PASTE", 4));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "COLOR_DEFAULT", -1));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "COLOR_BLACK", 0));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "COLOR_RED", 1));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "COLOR_GREEN", 2));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "COLOR_YELLOW", 3));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "COLOR_BLUE", 4));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "COLOR_MAGENTA", 5));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "COLOR_CYAN", 6));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "COLOR_WHITE", 7));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "COLOR_BRIGHT_BLACK", 8));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "COLOR_BRIGHT_RED", 9));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "COLOR_BRIGHT_GREEN", 10));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "COLOR_BRIGHT_YELLOW", 11));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "COLOR_BRIGHT_BLUE", 12));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "COLOR_BRIGHT_MAGENTA", 13));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "COLOR_BRIGHT_CYAN", 14));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "COLOR_BRIGHT_WHITE", 15));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "ATTR_NONE", 0));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "ATTR_BOLD", 1));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "ATTR_DIM", 2));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "ATTR_ITALIC", 4));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "ATTR_UNDERLINE", 8));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "ATTR_BLINK", 16));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "ATTR_REVERSE", 32));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "ATTR_STRIKETHROUGH", 64));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "MOD_SHIFT", 1));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "MOD_ALT", 2));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "MOD_CTRL", 4));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "MOUSE_LEFT", 1));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "MOUSE_MIDDLE", 2));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "MOUSE_RIGHT", 3));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "MOUSE_RELEASE", 4));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "MOUSE_MOVE", 5));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "MOUSE_SCROLL_UP", 6));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "MOUSE_SCROLL_DOWN", 7));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "KEY_UNKNOWN", 0));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "KEY_ESCAPE", 256));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "KEY_ENTER", 257));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "KEY_TAB", 258));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "KEY_BACKSPACE", 259));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "KEY_UP", 260));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "KEY_DOWN", 261));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "KEY_LEFT", 262));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "KEY_RIGHT", 263));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "KEY_HOME", 264));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "KEY_END", 265));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "KEY_PAGE_UP", 266));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "KEY_PAGE_DOWN", 267));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "KEY_INSERT", 268));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "KEY_DELETE", 269));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "KEY_F1", 290));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "KEY_F2", 291));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "KEY_F3", 292));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "KEY_F4", 293));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "KEY_F5", 294));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "KEY_F6", 295));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "KEY_F7", 296));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "KEY_F8", 297));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "KEY_F9", 298));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "KEY_F10", 299));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "KEY_F11", 300));
+        cn_program_push_const(program, cn_builtin_const_int_create(allocator, "KEY_F12", 301));
+
+        cn_function *is_tty = cn_builtin_function_create(allocator, "is_tty", cn_builtin_primitive_type(allocator, CN_TYPE_BOOL));
+        cn_program_push_function(program, is_tty);
+
+        cn_function *columns = cn_builtin_function_create(allocator, "columns", cn_builtin_result_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, columns);
+
+        cn_function *rows = cn_builtin_function_create(allocator, "rows", cn_builtin_result_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, rows);
+
+        cn_function *term_name = cn_builtin_function_create(allocator, "term_name", cn_builtin_result_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, term_name);
+
+        cn_function *supports_truecolor = cn_builtin_function_create(allocator, "supports_truecolor", cn_builtin_primitive_type(allocator, CN_TYPE_BOOL));
+        cn_program_push_function(program, supports_truecolor);
+
+        cn_function *supports_256color = cn_builtin_function_create(allocator, "supports_256color", cn_builtin_primitive_type(allocator, CN_TYPE_BOOL));
+        cn_program_push_function(program, supports_256color);
+
+        cn_function *supports_unicode = cn_builtin_function_create(allocator, "supports_unicode", cn_builtin_primitive_type(allocator, CN_TYPE_BOOL));
+        cn_program_push_function(program, supports_unicode);
+
+        cn_function *supports_mouse = cn_builtin_function_create(allocator, "supports_mouse", cn_builtin_primitive_type(allocator, CN_TYPE_BOOL));
+        cn_program_push_function(program, supports_mouse);
+
+        cn_function *read_byte = cn_builtin_function_create(allocator, "read_byte", cn_builtin_result_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, read_byte);
+
+        cn_function *read_byte_timeout = cn_builtin_function_create(allocator, "read_byte_timeout", cn_builtin_result_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, read_byte_timeout, "timeout_ms", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, read_byte_timeout);
+
+        cn_function *read_event = cn_builtin_function_create(
+            allocator,
+            "read_event",
+            cn_builtin_result_wrapped_type(allocator, cn_builtin_named_type(allocator, "std.term", "Event"))
+        );
+        cn_program_push_function(program, read_event);
+
+        cn_function *read_event_timeout = cn_builtin_function_create(
+            allocator,
+            "read_event_timeout",
+            cn_builtin_result_wrapped_type(allocator, cn_builtin_named_type(allocator, "std.term", "Event"))
+        );
+        cn_builtin_push_param(allocator, read_event_timeout, "timeout_ms", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, read_event_timeout);
+
+        cn_function *read_paste = cn_builtin_function_create(allocator, "read_paste", cn_builtin_result_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, read_paste);
+
+        cn_function *rgb = cn_builtin_function_create(allocator, "rgb", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, rgb, "red", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, rgb, "green", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, rgb, "blue", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, rgb);
+
+        cn_function *codepoint_width = cn_builtin_function_create(allocator, "codepoint_width", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, codepoint_width, "code", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, codepoint_width);
+
+        cn_function *string_width = cn_builtin_function_create(allocator, "string_width", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, string_width, "value", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, string_width);
+
+        cn_function *set_style = cn_builtin_function_create(allocator, "set_style", cn_builtin_primitive_type(allocator, CN_TYPE_VOID));
+        cn_builtin_push_param(allocator, set_style, "fg", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, set_style, "bg", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, set_style, "attrs", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, set_style);
+
+        cn_function *reset_style = cn_builtin_function_create(allocator, "reset_style", cn_builtin_primitive_type(allocator, CN_TYPE_VOID));
+        cn_program_push_function(program, reset_style);
+
+        cn_function *enable_mouse = cn_builtin_function_create(allocator, "enable_mouse", cn_builtin_primitive_type(allocator, CN_TYPE_VOID));
+        cn_program_push_function(program, enable_mouse);
+
+        cn_function *disable_mouse = cn_builtin_function_create(allocator, "disable_mouse", cn_builtin_primitive_type(allocator, CN_TYPE_VOID));
+        cn_program_push_function(program, disable_mouse);
+
+        cn_function *enable_bracketed_paste = cn_builtin_function_create(allocator, "enable_bracketed_paste", cn_builtin_primitive_type(allocator, CN_TYPE_VOID));
+        cn_program_push_function(program, enable_bracketed_paste);
+
+        cn_function *disable_bracketed_paste = cn_builtin_function_create(allocator, "disable_bracketed_paste", cn_builtin_primitive_type(allocator, CN_TYPE_VOID));
+        cn_program_push_function(program, disable_bracketed_paste);
+
+        cn_function *buffer_new = cn_builtin_function_create(
+            allocator,
+            "buffer_new",
+            cn_builtin_result_wrapped_type(
+                allocator,
+                cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.term", "Buffer"))
+            )
+        );
+        cn_builtin_push_param(allocator, buffer_new, "width", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, buffer_new, "height", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, buffer_new);
+
+        cn_function *buffer_resize = cn_builtin_function_create(allocator, "buffer_resize", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(
+            allocator,
+            buffer_resize,
+            "buffer",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.term", "Buffer"))
+        );
+        cn_builtin_push_param(allocator, buffer_resize, "width", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, buffer_resize, "height", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, buffer_resize, "fill", cn_builtin_named_type(allocator, "std.term", "Cell"));
+        cn_program_push_function(program, buffer_resize);
+
+        cn_function *buffer_free = cn_builtin_function_create(allocator, "buffer_free", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(
+            allocator,
+            buffer_free,
+            "buffer",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.term", "Buffer"))
+        );
+        cn_program_push_function(program, buffer_free);
+
+        cn_function *buffer_clear = cn_builtin_function_create(allocator, "buffer_clear", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(
+            allocator,
+            buffer_clear,
+            "buffer",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.term", "Buffer"))
+        );
+        cn_builtin_push_param(allocator, buffer_clear, "fill", cn_builtin_named_type(allocator, "std.term", "Cell"));
+        cn_program_push_function(program, buffer_clear);
+
+        cn_function *buffer_set = cn_builtin_function_create(allocator, "buffer_set", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(
+            allocator,
+            buffer_set,
+            "buffer",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.term", "Buffer"))
+        );
+        cn_builtin_push_param(allocator, buffer_set, "row", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, buffer_set, "column", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, buffer_set, "value", cn_builtin_named_type(allocator, "std.term", "Cell"));
+        cn_program_push_function(program, buffer_set);
+
+        cn_function *buffer_get = cn_builtin_function_create(
+            allocator,
+            "buffer_get",
+            cn_builtin_result_wrapped_type(allocator, cn_builtin_named_type(allocator, "std.term", "Cell"))
+        );
+        cn_builtin_push_param(
+            allocator,
+            buffer_get,
+            "buffer",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.term", "Buffer"))
+        );
+        cn_builtin_push_param(allocator, buffer_get, "row", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, buffer_get, "column", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, buffer_get);
+
+        cn_function *render_diff = cn_builtin_function_create(allocator, "render_diff", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(
+            allocator,
+            render_diff,
+            "back",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.term", "Buffer"))
+        );
+        cn_builtin_push_param(
+            allocator,
+            render_diff,
+            "front",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.term", "Buffer"))
+        );
+        cn_program_push_function(program, render_diff);
+
+        cn_function *render_diff_clip = cn_builtin_function_create(allocator, "render_diff_clip", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(
+            allocator,
+            render_diff_clip,
+            "back",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.term", "Buffer"))
+        );
+        cn_builtin_push_param(
+            allocator,
+            render_diff_clip,
+            "front",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.term", "Buffer"))
+        );
+        cn_builtin_push_param(allocator, render_diff_clip, "clip", cn_builtin_named_type(allocator, "std.term", "Clip"));
+        cn_program_push_function(program, render_diff_clip);
+
+        cn_function *write = cn_builtin_function_create(allocator, "write", cn_builtin_primitive_type(allocator, CN_TYPE_VOID));
+        cn_builtin_push_param(allocator, write, "value", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, write);
+
+        cn_function *flush = cn_builtin_function_create(allocator, "flush", cn_builtin_primitive_type(allocator, CN_TYPE_VOID));
+        cn_program_push_function(program, flush);
+
+        cn_function *clear = cn_builtin_function_create(allocator, "clear", cn_builtin_primitive_type(allocator, CN_TYPE_VOID));
+        cn_program_push_function(program, clear);
+
+        cn_function *clear_line = cn_builtin_function_create(allocator, "clear_line", cn_builtin_primitive_type(allocator, CN_TYPE_VOID));
+        cn_program_push_function(program, clear_line);
+
+        cn_function *clear_line_left = cn_builtin_function_create(allocator, "clear_line_left", cn_builtin_primitive_type(allocator, CN_TYPE_VOID));
+        cn_program_push_function(program, clear_line_left);
+
+        cn_function *clear_line_right = cn_builtin_function_create(allocator, "clear_line_right", cn_builtin_primitive_type(allocator, CN_TYPE_VOID));
+        cn_program_push_function(program, clear_line_right);
+
+        cn_function *move_cursor = cn_builtin_function_create(allocator, "move_cursor", cn_builtin_primitive_type(allocator, CN_TYPE_VOID));
+        cn_builtin_push_param(allocator, move_cursor, "row", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, move_cursor, "column", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, move_cursor);
+
+        cn_function *save_cursor = cn_builtin_function_create(allocator, "save_cursor", cn_builtin_primitive_type(allocator, CN_TYPE_VOID));
+        cn_program_push_function(program, save_cursor);
+
+        cn_function *restore_cursor = cn_builtin_function_create(allocator, "restore_cursor", cn_builtin_primitive_type(allocator, CN_TYPE_VOID));
+        cn_program_push_function(program, restore_cursor);
+
+        cn_function *hide_cursor = cn_builtin_function_create(allocator, "hide_cursor", cn_builtin_primitive_type(allocator, CN_TYPE_VOID));
+        cn_program_push_function(program, hide_cursor);
+
+        cn_function *show_cursor = cn_builtin_function_create(allocator, "show_cursor", cn_builtin_primitive_type(allocator, CN_TYPE_VOID));
+        cn_program_push_function(program, show_cursor);
+
+        cn_function *enter_alt_screen = cn_builtin_function_create(allocator, "enter_alt_screen", cn_builtin_primitive_type(allocator, CN_TYPE_VOID));
+        cn_program_push_function(program, enter_alt_screen);
+
+        cn_function *leave_alt_screen = cn_builtin_function_create(allocator, "leave_alt_screen", cn_builtin_primitive_type(allocator, CN_TYPE_VOID));
+        cn_program_push_function(program, leave_alt_screen);
+
+        cn_function *set_scroll_region = cn_builtin_function_create(allocator, "set_scroll_region", cn_builtin_primitive_type(allocator, CN_TYPE_VOID));
+        cn_builtin_push_param(allocator, set_scroll_region, "top", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, set_scroll_region, "bottom", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, set_scroll_region);
+
+        cn_function *reset_scroll_region = cn_builtin_function_create(allocator, "reset_scroll_region", cn_builtin_primitive_type(allocator, CN_TYPE_VOID));
+        cn_program_push_function(program, reset_scroll_region);
+
+        cn_function *enter_raw_mode = cn_builtin_function_create(allocator, "enter_raw_mode", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_program_push_function(program, enter_raw_mode);
+
+        cn_function *leave_raw_mode = cn_builtin_function_create(allocator, "leave_raw_mode", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_program_push_function(program, leave_raw_mode);
         return program;
     }
 

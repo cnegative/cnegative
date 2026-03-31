@@ -19,6 +19,7 @@ set(CNEGATIVE_C_SOURCES
     src/backend/stdlib/path.c
     src/backend/stdlib/process.c
     src/backend/stdlib/strings.c
+    src/backend/stdlib/term.c
     src/backend/stdlib/time.c
     src/backend/stdlib/x11.c
     src/asm/scan_fallback.c

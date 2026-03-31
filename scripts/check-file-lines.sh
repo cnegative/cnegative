@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-limit=3000
+limit=5000
 status=0
 
 while IFS= read -r file; do

@@ -4,14 +4,18 @@ void cn_llvm_emit_runtime_decls(FILE *stream) {
     fputs("declare i32 @printf(ptr, ...)\n", stream);
     fputs("declare i32 @puts(ptr)\n", stream);
     fputs("declare i32 @getchar()\n", stream);
+    fputs("declare i32 @putchar(i32)\n", stream);
+    fputs("declare i32 @fflush(ptr)\n", stream);
     fputs("declare i64 @strlen(ptr)\n", stream);
     fputs("declare i32 @strcmp(ptr, ptr)\n", stream);
+    fputs("declare ptr @strstr(ptr, ptr)\n", stream);
     fputs("declare i32 @memcmp(ptr, ptr, i64)\n", stream);
     fputs("declare ptr @memcpy(ptr, ptr, i64)\n", stream);
     fputs("declare ptr @malloc(i64)\n", stream);
     fputs("declare ptr @realloc(ptr, i64)\n", stream);
     fputs("declare i32 @snprintf(ptr, i64, ptr, ...)\n", stream);
     fputs("declare void @free(ptr)\n", stream);
+    fputs("declare i32 @atexit(ptr)\n", stream);
     fputs("declare ptr @fopen(ptr, ptr)\n", stream);
     fputs("declare i32 @fclose(ptr)\n", stream);
     fputs("declare i32 @fgetc(ptr)\n", stream);
@@ -21,7 +25,13 @@ void cn_llvm_emit_runtime_decls(FILE *stream) {
     fputs("declare i32 @rename(ptr, ptr)\n", stream);
     fputs("declare void @exit(i32)\n", stream);
 #ifdef _WIN32
+    fputs("declare i32 @_getch()\n", stream);
+    fputs("declare i32 @_kbhit()\n", stream);
     fputs("declare ptr @_getcwd(ptr, i32)\n", stream);
+    fputs("declare ptr @GetStdHandle(i32)\n", stream);
+    fputs("declare i32 @GetConsoleMode(ptr, ptr)\n", stream);
+    fputs("declare i32 @SetConsoleMode(ptr, i32)\n", stream);
+    fputs("declare i32 @GetConsoleScreenBufferInfo(ptr, ptr)\n", stream);
     fputs("declare void @Sleep(i32)\n", stream);
     fputs("declare void @GetSystemTimeAsFileTime(ptr)\n", stream);
     fputs("declare i32 @WSAStartup(i16, ptr)\n", stream);
@@ -43,6 +53,15 @@ void cn_llvm_emit_runtime_decls(FILE *stream) {
     fputs("declare i32 @_rmdir(ptr)\n", stream);
     fputs("%cn_filetime = type { i32, i32 }\n", stream);
 #else
+    fputs("declare i32 @isatty(i32)\n", stream);
+    fputs("declare ptr @signal(i32, ptr)\n", stream);
+    fputs("declare i64 @read(i32, ptr, i64)\n", stream);
+    fputs("declare i32 @poll(ptr, i64, i32)\n", stream);
+    fputs("declare i32 @ioctl(i32, i64, ptr)\n", stream);
+    fputs("declare i32 @tcgetattr(i32, ptr)\n", stream);
+    fputs("declare i32 @tcsetattr(i32, i32, ptr)\n", stream);
+    fputs("declare void @cfmakeraw(ptr)\n", stream);
+    fputs("declare i32 @wcwidth(i32)\n", stream);
     fputs("declare i32 @timespec_get(ptr, i32)\n", stream);
     fputs("declare ptr @getcwd(ptr, i64)\n", stream);
     fputs("declare i32 @usleep(i32)\n", stream);
@@ -62,6 +81,7 @@ void cn_llvm_emit_runtime_decls(FILE *stream) {
     fputs("declare i32 @inet_addr(ptr)\n", stream);
     fputs("declare i32 @mkdir(ptr, i32)\n", stream);
     fputs("declare i32 @rmdir(ptr)\n", stream);
+    fputs("%cn_pollfd = type { i32, i16, i16 }\n", stream);
     fputs("%cn_timespec = type { i64, i64 }\n", stream);
 #endif
 }

@@ -13,6 +13,7 @@ void cn_llvm_emit_runtime_prelude(FILE *stream, bool use_x11) {
     cn_llvm_emit_runtime_fs(stream);
     cn_llvm_emit_runtime_process(stream);
     cn_llvm_emit_runtime_io(stream);
+    cn_llvm_emit_runtime_term(stream);
     if (use_x11) {
         cn_llvm_emit_runtime_x11(stream);
     }

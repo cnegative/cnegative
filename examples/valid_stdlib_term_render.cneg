@@ -1,0 +1,89 @@
+import std.term as term;
+
+fn:int main() {
+    let blank:term.Cell = term.Cell {
+        code:32,
+        fg:term.COLOR_DEFAULT,
+        bg:term.COLOR_DEFAULT,
+        attrs:term.ATTR_NONE,
+        wide:false
+    };
+
+    let accent:term.Cell = term.Cell {
+        code:35,
+        fg:term.COLOR_BRIGHT_CYAN,
+        bg:term.COLOR_DEFAULT,
+        attrs:term.ATTR_BOLD,
+        wide:false
+    };
+
+    let wide:term.Cell = term.Cell {
+        code:20320,
+        fg:term.COLOR_BRIGHT_YELLOW,
+        bg:term.COLOR_DEFAULT,
+        attrs:term.ATTR_NONE,
+        wide:false
+    };
+
+    let clip:term.Clip = term.Clip {
+        row:0,
+        column:0,
+        height:2,
+        width:4
+    };
+
+    let back:result ptr term.Buffer = term.buffer_new(4, 2);
+    let front:result ptr term.Buffer = term.buffer_new(4, 2);
+
+    term.set_style(term.COLOR_GREEN, term.COLOR_DEFAULT, term.ATTR_BOLD);
+    term.reset_style();
+
+    if back.ok {
+        if front.ok {
+            let resized_back:result bool = term.buffer_resize(back.value, 6, 3, blank);
+            let resized_front:result bool = term.buffer_resize(front.value, 6, 3, blank);
+
+            if resized_back.ok {
+                if resized_front.ok {
+                    let cleared_back:result bool = term.buffer_clear(back.value, blank);
+                    let cleared_front:result bool = term.buffer_clear(front.value, blank);
+
+                    if cleared_back.ok {
+                        if cleared_front.ok {
+                            let placed_accent:result bool = term.buffer_set(back.value, 0, 0, accent);
+                            let placed_wide:result bool = term.buffer_set(back.value, 1, 1, wide);
+                            let loaded:result term.Cell = term.buffer_get(back.value, 1, 1);
+                            let width:int = term.codepoint_width(20320);
+
+                            if placed_accent.ok {
+                                if placed_wide.ok {
+                                    if loaded.ok {
+                                        if width == 2 {
+                                        if loaded.value.wide {
+                                            let drawn:result bool = term.render_diff_clip(back.value, front.value, clip);
+                                            if drawn.ok == false {
+                                                let drop_back_err:result bool = term.buffer_free(back.value);
+                                                let drop_front_err:result bool = term.buffer_free(front.value);
+                                                return 1;
+                                            }
+                                        }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            let drop_back:result bool = term.buffer_free(back.value);
+            let drop_front:result bool = term.buffer_free(front.value);
+
+            if drop_back.ok == false || drop_front.ok == false {
+                return 1;
+            }
+        }
+    }
+
+    return 0;
+}

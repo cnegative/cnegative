@@ -63,6 +63,9 @@ cn_verify_llvm_ir() {
 ./build/cnegc check examples/valid_stdlib_net_udp.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_stdlib_math_process.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_stdlib_path_fs_extra.cneg >"$tmp_valid"
+./build/cnegc check examples/valid_stdlib_term.cneg >"$tmp_valid"
+./build/cnegc check examples/valid_stdlib_term_more.cneg >"$tmp_valid"
+./build/cnegc check examples/valid_stdlib_term_render.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_u8.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_if_expr.cneg >"$tmp_valid"
 
@@ -249,6 +252,117 @@ if ! grep -q 'std.fs.copy' "$tmp_ir"; then
 fi
 if ! grep -q 'std.path.extension' "$tmp_ir"; then
     printf 'expected std.path.extension builtin lowering in typed IR for valid_stdlib_path_fs_extra.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+
+./build/cnegc ir examples/valid_stdlib_term.cneg >"$tmp_ir"
+if ! grep -q 'std.term.columns' "$tmp_ir"; then
+    printf 'expected std.term.columns builtin lowering in typed IR for valid_stdlib_term.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.term.enter_raw_mode' "$tmp_ir"; then
+    printf 'expected std.term.enter_raw_mode builtin lowering in typed IR for valid_stdlib_term.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.term.read_byte' "$tmp_ir"; then
+    printf 'expected std.term.read_byte builtin lowering in typed IR for valid_stdlib_term.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.term.read_event' "$tmp_ir"; then
+    printf 'expected std.term.read_event builtin lowering in typed IR for valid_stdlib_term.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.term.read_paste' "$tmp_ir"; then
+    printf 'expected std.term.read_paste builtin lowering in typed IR for valid_stdlib_term.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.term.enable_mouse' "$tmp_ir"; then
+    printf 'expected std.term.enable_mouse builtin lowering in typed IR for valid_stdlib_term.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.term.enable_bracketed_paste' "$tmp_ir"; then
+    printf 'expected std.term.enable_bracketed_paste builtin lowering in typed IR for valid_stdlib_term.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.term.enter_alt_screen' "$tmp_ir"; then
+    printf 'expected std.term.enter_alt_screen builtin lowering in typed IR for valid_stdlib_term.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'result std.term.Event' "$tmp_ir"; then
+    printf 'expected std.term.Event result type in typed IR for valid_stdlib_term.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+
+./build/cnegc ir examples/valid_stdlib_term_more.cneg >"$tmp_ir"
+if ! grep -q 'std.term.term_name' "$tmp_ir"; then
+    printf 'expected std.term.term_name builtin lowering in typed IR for valid_stdlib_term_more.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.term.supports_truecolor' "$tmp_ir"; then
+    printf 'expected std.term.supports_truecolor builtin lowering in typed IR for valid_stdlib_term_more.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.term.read_event_timeout' "$tmp_ir"; then
+    printf 'expected std.term.read_event_timeout builtin lowering in typed IR for valid_stdlib_term_more.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.term.rgb' "$tmp_ir"; then
+    printf 'expected std.term.rgb builtin lowering in typed IR for valid_stdlib_term_more.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.term.string_width' "$tmp_ir"; then
+    printf 'expected std.term.string_width builtin lowering in typed IR for valid_stdlib_term_more.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.term.set_scroll_region' "$tmp_ir"; then
+    printf 'expected std.term.set_scroll_region builtin lowering in typed IR for valid_stdlib_term_more.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+
+./build/cnegc ir examples/valid_stdlib_term_render.cneg >"$tmp_ir"
+if ! grep -q 'std.term.buffer_new' "$tmp_ir"; then
+    printf 'expected std.term.buffer_new builtin lowering in typed IR for valid_stdlib_term_render.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.term.buffer_resize' "$tmp_ir"; then
+    printf 'expected std.term.buffer_resize builtin lowering in typed IR for valid_stdlib_term_render.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.term.render_diff_clip' "$tmp_ir"; then
+    printf 'expected std.term.render_diff_clip builtin lowering in typed IR for valid_stdlib_term_render.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'result ptr std.term.Buffer' "$tmp_ir"; then
+    printf 'expected std.term.Buffer pointer result type in typed IR for valid_stdlib_term_render.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'term.Clip' "$tmp_ir"; then
+    printf 'expected std.term Clip use in typed IR for valid_stdlib_term_render.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.term.codepoint_width' "$tmp_ir"; then
+    printf 'expected std.term.codepoint_width builtin lowering in typed IR for valid_stdlib_term_render.cneg\n'
     cat "$tmp_ir"
     exit 1
 fi
@@ -568,6 +682,105 @@ if ! grep -q '@cn_path_stem' "$tmp_ll"; then
 fi
 if ! grep -q '@cn_path_is_absolute' "$tmp_ll"; then
     printf 'expected std.path is_absolute lowering in LLVM IR for valid_stdlib_path_fs_extra.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+cn_verify_llvm_ir "$tmp_ll" "$tmp_bc"
+
+./build/cnegc llvm-ir examples/valid_stdlib_term.cneg >"$tmp_ll"
+if ! grep -q '@cn_term_columns' "$tmp_ll"; then
+    printf 'expected std.term columns lowering in LLVM IR for valid_stdlib_term.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_term_enter_raw_mode' "$tmp_ll"; then
+    printf 'expected std.term raw-mode lowering in LLVM IR for valid_stdlib_term.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_term_read_byte' "$tmp_ll"; then
+    printf 'expected std.term byte-read lowering in LLVM IR for valid_stdlib_term.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_term_read_event' "$tmp_ll"; then
+    printf 'expected std.term event-read lowering in LLVM IR for valid_stdlib_term.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_term_read_paste' "$tmp_ll"; then
+    printf 'expected std.term paste-read lowering in LLVM IR for valid_stdlib_term.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_term_enable_mouse' "$tmp_ll"; then
+    printf 'expected std.term mouse enable lowering in LLVM IR for valid_stdlib_term.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_term_enable_bracketed_paste' "$tmp_ll"; then
+    printf 'expected std.term bracketed paste lowering in LLVM IR for valid_stdlib_term.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_term_move_cursor' "$tmp_ll"; then
+    printf 'expected std.term cursor lowering in LLVM IR for valid_stdlib_term.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+cn_verify_llvm_ir "$tmp_ll" "$tmp_bc"
+
+./build/cnegc llvm-ir examples/valid_stdlib_term_more.cneg >"$tmp_ll"
+if ! grep -q '@cn_term_term_name' "$tmp_ll"; then
+    printf 'expected std.term.term_name runtime helper in LLVM IR for valid_stdlib_term_more.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_term_supports_truecolor' "$tmp_ll"; then
+    printf 'expected std.term.supports_truecolor runtime helper in LLVM IR for valid_stdlib_term_more.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_term_read_event_timeout' "$tmp_ll"; then
+    printf 'expected std.term.read_event_timeout runtime helper in LLVM IR for valid_stdlib_term_more.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_term_rgb' "$tmp_ll"; then
+    printf 'expected std.term.rgb runtime helper in LLVM IR for valid_stdlib_term_more.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_term_set_scroll_region' "$tmp_ll"; then
+    printf 'expected std.term.set_scroll_region runtime helper in LLVM IR for valid_stdlib_term_more.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+cn_verify_llvm_ir "$tmp_ll" "$tmp_bc"
+
+./build/cnegc llvm-ir examples/valid_stdlib_term_render.cneg >"$tmp_ll"
+if ! grep -q '@cn_term_set_style' "$tmp_ll"; then
+    printf 'expected std.term style lowering in LLVM IR for valid_stdlib_term_render.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_term_buffer_new' "$tmp_ll"; then
+    printf 'expected std.term buffer allocation lowering in LLVM IR for valid_stdlib_term_render.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_term_buffer_resize' "$tmp_ll"; then
+    printf 'expected std.term buffer resize lowering in LLVM IR for valid_stdlib_term_render.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_term_render_diff_clip' "$tmp_ll"; then
+    printf 'expected std.term clipped render diff lowering in LLVM IR for valid_stdlib_term_render.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '%cn_std_x2E_term__Clip = type' "$tmp_ll"; then
+    printf 'expected std.term Clip type lowering in LLVM IR for valid_stdlib_term_render.cneg\n'
     cat "$tmp_ll"
     exit 1
 fi

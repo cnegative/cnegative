@@ -1,0 +1,55 @@
+import std.io as io;
+import std.term as term;
+
+fn:int main() {
+    let tty:bool = term.is_tty();
+    let name:result str = term.term_name();
+    let truecolor:bool = term.supports_truecolor();
+    let colors256:bool = term.supports_256color();
+    let unicode:bool = term.supports_unicode();
+    let mouse:bool = term.supports_mouse();
+    let maybe_byte:result int = term.read_byte_timeout(0);
+    let maybe_event:result term.Event = term.read_event_timeout(0);
+    let accent:int = term.rgb(12, 34, 56);
+    let hello_width:int = term.string_width("hello");
+    let han_width:int = term.codepoint_width(20320);
+
+    if tty {
+        term.enter_alt_screen();
+        term.save_cursor();
+        term.clear();
+        term.set_scroll_region(0, 2);
+        term.move_cursor(0, 0);
+        term.set_style(accent, term.COLOR_DEFAULT, term.ATTR_BOLD + term.ATTR_STRIKETHROUGH);
+        term.write("std.term layer");
+        term.reset_style();
+        term.clear_line_right();
+        term.clear_line_left();
+        term.clear_line();
+        term.restore_cursor();
+        term.reset_scroll_region();
+        term.leave_alt_screen();
+        term.flush();
+    }
+
+    if name.ok {
+        io.write_line(name.value);
+        free name.value;
+    }
+
+    if truecolor || colors256 || unicode || mouse {
+        term.write("");
+    }
+
+    if maybe_byte.ok || maybe_event.ok {
+        term.write("");
+    }
+
+    if hello_width >= 0 {
+        if han_width >= 0 {
+            term.write("");
+        }
+    }
+
+    return 0;
+}

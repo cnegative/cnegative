@@ -16,6 +16,7 @@ void cn_llvm_emit_runtime_path(FILE *stream);
 void cn_llvm_emit_runtime_fs(FILE *stream);
 void cn_llvm_emit_runtime_process(FILE *stream);
 void cn_llvm_emit_runtime_io(FILE *stream);
+void cn_llvm_emit_runtime_term(FILE *stream);
 void cn_llvm_emit_runtime_x11(FILE *stream);
 void cn_llvm_emit_runtime_prelude(FILE *stream, bool use_x11);
 

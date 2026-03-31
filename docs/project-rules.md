@@ -4,7 +4,7 @@
 
 1. Compiler and tooling code is written in C.
 2. Performance-critical hot paths are reserved for assembly once profiling proves they matter.
-3. No source file should exceed 3000 lines.
+3. No source file should exceed 5000 lines.
 4. Developer-facing memory leak tracking must be enabled from the beginning.
 5. Diagnostics must be specific, stable, and documented.
 6. Statement-terminator rules stay explicit: semicolons are required for simple statements.

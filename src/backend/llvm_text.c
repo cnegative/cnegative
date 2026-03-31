@@ -176,7 +176,11 @@ static const cn_ir_struct *cn_llvm_find_struct(const cn_ir_program *program, cn_
 }
 
 static bool cn_llvm_is_runtime_owned_struct(cn_strview module_name, cn_strview struct_name) {
-    return cn_sv_eq_cstr(module_name, "std.net") && cn_sv_eq_cstr(struct_name, "UdpPacket");
+    return (cn_sv_eq_cstr(module_name, "std.net") && cn_sv_eq_cstr(struct_name, "UdpPacket")) ||
+           (cn_sv_eq_cstr(module_name, "std.term") && cn_sv_eq_cstr(struct_name, "Clip")) ||
+           (cn_sv_eq_cstr(module_name, "std.term") && cn_sv_eq_cstr(struct_name, "Cell")) ||
+           (cn_sv_eq_cstr(module_name, "std.term") && cn_sv_eq_cstr(struct_name, "Buffer")) ||
+           (cn_sv_eq_cstr(module_name, "std.term") && cn_sv_eq_cstr(struct_name, "Event"));
 }
 
 static bool cn_llvm_type_is_void_like(const cn_ir_type *type) {
@@ -341,6 +345,36 @@ static bool cn_llvm_validate_call(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expre
         }
 
         if (cn_llvm_call_matches(expression, "std.io", "read_line") ||
+            cn_llvm_call_matches(expression, "std.term", "is_tty") ||
+            cn_llvm_call_matches(expression, "std.term", "columns") ||
+            cn_llvm_call_matches(expression, "std.term", "rows") ||
+            cn_llvm_call_matches(expression, "std.term", "term_name") ||
+            cn_llvm_call_matches(expression, "std.term", "supports_truecolor") ||
+            cn_llvm_call_matches(expression, "std.term", "supports_256color") ||
+            cn_llvm_call_matches(expression, "std.term", "supports_unicode") ||
+            cn_llvm_call_matches(expression, "std.term", "supports_mouse") ||
+            cn_llvm_call_matches(expression, "std.term", "read_byte") ||
+            cn_llvm_call_matches(expression, "std.term", "read_event") ||
+            cn_llvm_call_matches(expression, "std.term", "read_paste") ||
+            cn_llvm_call_matches(expression, "std.term", "reset_style") ||
+            cn_llvm_call_matches(expression, "std.term", "enable_mouse") ||
+            cn_llvm_call_matches(expression, "std.term", "disable_mouse") ||
+            cn_llvm_call_matches(expression, "std.term", "enable_bracketed_paste") ||
+            cn_llvm_call_matches(expression, "std.term", "disable_bracketed_paste") ||
+            cn_llvm_call_matches(expression, "std.term", "flush") ||
+            cn_llvm_call_matches(expression, "std.term", "clear") ||
+            cn_llvm_call_matches(expression, "std.term", "clear_line") ||
+            cn_llvm_call_matches(expression, "std.term", "clear_line_left") ||
+            cn_llvm_call_matches(expression, "std.term", "clear_line_right") ||
+            cn_llvm_call_matches(expression, "std.term", "save_cursor") ||
+            cn_llvm_call_matches(expression, "std.term", "restore_cursor") ||
+            cn_llvm_call_matches(expression, "std.term", "hide_cursor") ||
+            cn_llvm_call_matches(expression, "std.term", "show_cursor") ||
+            cn_llvm_call_matches(expression, "std.term", "enter_alt_screen") ||
+            cn_llvm_call_matches(expression, "std.term", "leave_alt_screen") ||
+            cn_llvm_call_matches(expression, "std.term", "reset_scroll_region") ||
+            cn_llvm_call_matches(expression, "std.term", "enter_raw_mode") ||
+            cn_llvm_call_matches(expression, "std.term", "leave_raw_mode") ||
             cn_llvm_call_matches(expression, "std.process", "platform") ||
             cn_llvm_call_matches(expression, "std.process", "arch") ||
             cn_llvm_call_matches(expression, "std.time", "now_ms") ||
@@ -374,6 +408,10 @@ static bool cn_llvm_validate_call(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expre
             cn_llvm_call_matches(expression, "std.net", "close") ||
             cn_llvm_call_matches(expression, "std.env", "has") ||
             cn_llvm_call_matches(expression, "std.env", "get") ||
+            cn_llvm_call_matches(expression, "std.term", "read_byte_timeout") ||
+            cn_llvm_call_matches(expression, "std.term", "read_event_timeout") ||
+            cn_llvm_call_matches(expression, "std.term", "codepoint_width") ||
+            cn_llvm_call_matches(expression, "std.term", "string_width") ||
             cn_llvm_call_matches(expression, "std.fs", "exists") ||
             cn_llvm_call_matches(expression, "std.fs", "create_dir") ||
             cn_llvm_call_matches(expression, "std.fs", "remove_dir") ||
@@ -382,6 +420,8 @@ static bool cn_llvm_validate_call(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expre
             cn_llvm_call_matches(expression, "std.fs", "remove") ||
             cn_llvm_call_matches(expression, "std.io", "write") ||
             cn_llvm_call_matches(expression, "std.io", "write_line") ||
+            cn_llvm_call_matches(expression, "std.term", "write") ||
+            cn_llvm_call_matches(expression, "std.term", "buffer_free") ||
             cn_llvm_call_matches(expression, "std.process", "exit") ||
             cn_llvm_call_matches(expression, "std.time", "sleep_ms") ||
             cn_llvm_call_matches(expression, "std.path", "stem") ||
@@ -404,6 +444,9 @@ static bool cn_llvm_validate_call(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expre
             cn_llvm_call_matches(expression, "std.net", "tcp_listen") ||
             cn_llvm_call_matches(expression, "std.net", "udp_bind") ||
             cn_llvm_call_matches(expression, "std.net", "udp_recv_from") ||
+            cn_llvm_call_matches(expression, "std.term", "buffer_new") ||
+            cn_llvm_call_matches(expression, "std.term", "buffer_clear") ||
+            cn_llvm_call_matches(expression, "std.term", "render_diff") ||
             cn_llvm_call_matches(expression, "std.fs", "copy") ||
             cn_llvm_call_matches(expression, "std.fs", "write_text") ||
             cn_llvm_call_matches(expression, "std.fs", "append_text") ||
@@ -418,11 +461,31 @@ static bool cn_llvm_validate_call(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expre
 
         if (cn_llvm_call_matches(expression, "std.math", "clamp") ||
             cn_llvm_call_matches(expression, "std.math", "between") ||
+            cn_llvm_call_matches(expression, "std.term", "set_style") ||
+            cn_llvm_call_matches(expression, "std.term", "rgb") ||
+            cn_llvm_call_matches(expression, "std.term", "buffer_get") ||
+            cn_llvm_call_matches(expression, "std.term", "render_diff_clip") ||
             cn_llvm_call_matches(expression, "std.x11", "open_window")) {
             return cn_llvm_validate_builtin_arguments(ctx, expression, 3, "unexpected builtin stdlib arity");
         }
 
+        if (cn_llvm_call_matches(expression, "std.term", "move_cursor")) {
+            return cn_llvm_validate_builtin_arguments(ctx, expression, 2, "unexpected builtin stdlib arity");
+        }
+
+        if (cn_llvm_call_matches(expression, "std.term", "set_scroll_region")) {
+            return cn_llvm_validate_builtin_arguments(ctx, expression, 2, "unexpected builtin stdlib arity");
+        }
+
         if (cn_llvm_call_matches(expression, "std.net", "udp_send_to")) {
+            return cn_llvm_validate_builtin_arguments(ctx, expression, 4, "unexpected builtin stdlib arity");
+        }
+
+        if (cn_llvm_call_matches(expression, "std.term", "buffer_set")) {
+            return cn_llvm_validate_builtin_arguments(ctx, expression, 4, "unexpected builtin stdlib arity");
+        }
+
+        if (cn_llvm_call_matches(expression, "std.term", "buffer_resize")) {
             return cn_llvm_validate_builtin_arguments(ctx, expression, 4, "unexpected builtin stdlib arity");
         }
 
@@ -1563,6 +1626,86 @@ static cn_llvm_value cn_llvm_lower_builtin_call(cn_llvm_function_ctx *ctx, cn_ll
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_input", arguments, 0);
     }
 
+    if (cn_llvm_call_matches(expression, "std.term", "is_tty")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_is_tty", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "columns")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_columns", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "rows")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_rows", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "term_name")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_term_name", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "supports_truecolor")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_supports_truecolor", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "supports_256color")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_supports_256color", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "supports_unicode")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_supports_unicode", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "supports_mouse")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_supports_mouse", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "read_byte")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_read_byte", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "read_byte_timeout")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_read_byte_timeout", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "read_event")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_read_event", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "read_event_timeout")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_read_event_timeout", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "read_paste")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_read_paste", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "codepoint_width")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_codepoint_width", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "string_width")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_string_width", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "reset_style")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_reset_style", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "enable_mouse")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_enable_mouse", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "disable_mouse")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_disable_mouse", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "enable_bracketed_paste")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_enable_bracketed_paste", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "disable_bracketed_paste")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_disable_bracketed_paste", arguments, 0);
+    }
+
     if (cn_llvm_call_matches(expression, "std.process", "platform")) {
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_process_platform", arguments, 0);
     }
@@ -1747,6 +1890,114 @@ static cn_llvm_value cn_llvm_lower_builtin_call(cn_llvm_function_ctx *ctx, cn_ll
 
     if (cn_llvm_call_matches(expression, "std.io", "write_line")) {
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_print_str", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "write")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_write_str", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "buffer_free")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_buffer_free", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "flush")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_flush", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "clear")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_clear", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "clear_line")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_clear_line", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "clear_line_left")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_clear_line_left", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "clear_line_right")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_clear_line_right", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "save_cursor")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_save_cursor", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "restore_cursor")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_restore_cursor", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "hide_cursor")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_hide_cursor", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "show_cursor")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_show_cursor", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "enter_alt_screen")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_enter_alt_screen", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "leave_alt_screen")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_leave_alt_screen", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "reset_scroll_region")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_reset_scroll_region", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "move_cursor")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_move_cursor", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "set_scroll_region")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_set_scroll_region", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "buffer_new")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_buffer_new", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "buffer_resize")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_buffer_resize", arguments, 4);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "buffer_clear")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_buffer_clear", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "render_diff")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_render_diff", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "render_diff_clip")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_render_diff_clip", arguments, 3);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "enter_raw_mode")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_enter_raw_mode", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "leave_raw_mode")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_leave_raw_mode", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "set_style")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_set_style", arguments, 3);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "rgb")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_rgb", arguments, 3);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "buffer_get")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_buffer_get", arguments, 3);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "buffer_set")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_buffer_set", arguments, 4);
     }
 
     if (cn_llvm_call_matches(expression, "std.process", "exit")) {

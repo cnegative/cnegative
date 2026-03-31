@@ -157,6 +157,7 @@ import std.math as math;
 import std.strings as strings;
 import std.parse as parse;
 import std.fs as fs;
+import std.term as term;
 import std.net as net;
 import std.process as process;
 import std.x11 as x11;
@@ -200,6 +201,97 @@ Current builtin stdlib surface:
 - `std.io.write(str) -> void`
 - `std.io.write_line(str) -> void`
 - `std.io.read_line() -> str`
+- `std.term.Cell { code:int; fg:int; bg:int; attrs:int; wide:bool }`
+- `std.term.Buffer { width:int; height:int; cells:ptr std.term.Cell }`
+- `std.term.Clip { row:int; column:int; height:int; width:int }`
+- `std.term.Event { kind:int; code:int; modifiers:int; row:int; column:int }`
+- `std.term.EVENT_KEY:int`
+- `std.term.EVENT_MOUSE:int`
+- `std.term.EVENT_RESIZE:int`
+- `std.term.EVENT_PASTE:int`
+- `std.term.COLOR_DEFAULT:int`
+- `std.term.COLOR_BLACK:int` through `std.term.COLOR_WHITE:int`
+- `std.term.COLOR_BRIGHT_BLACK:int` through `std.term.COLOR_BRIGHT_WHITE:int`
+- `std.term.ATTR_NONE:int`
+- `std.term.ATTR_BOLD:int`
+- `std.term.ATTR_DIM:int`
+- `std.term.ATTR_ITALIC:int`
+- `std.term.ATTR_UNDERLINE:int`
+- `std.term.ATTR_BLINK:int`
+- `std.term.ATTR_REVERSE:int`
+- `std.term.ATTR_STRIKETHROUGH:int`
+- `std.term.MOD_SHIFT:int`
+- `std.term.MOD_ALT:int`
+- `std.term.MOD_CTRL:int`
+- `std.term.MOUSE_LEFT:int`
+- `std.term.MOUSE_MIDDLE:int`
+- `std.term.MOUSE_RIGHT:int`
+- `std.term.MOUSE_RELEASE:int`
+- `std.term.MOUSE_MOVE:int`
+- `std.term.MOUSE_SCROLL_UP:int`
+- `std.term.MOUSE_SCROLL_DOWN:int`
+- `std.term.KEY_ESCAPE:int`
+- `std.term.KEY_ENTER:int`
+- `std.term.KEY_TAB:int`
+- `std.term.KEY_BACKSPACE:int`
+- `std.term.KEY_UP:int`
+- `std.term.KEY_DOWN:int`
+- `std.term.KEY_LEFT:int`
+- `std.term.KEY_RIGHT:int`
+- `std.term.KEY_HOME:int`
+- `std.term.KEY_END:int`
+- `std.term.KEY_PAGE_UP:int`
+- `std.term.KEY_PAGE_DOWN:int`
+- `std.term.KEY_INSERT:int`
+- `std.term.KEY_DELETE:int`
+- `std.term.KEY_F1:int` through `std.term.KEY_F12:int`
+- `std.term.is_tty() -> bool`
+- `std.term.columns() -> result int`
+- `std.term.rows() -> result int`
+- `std.term.term_name() -> result str`
+- `std.term.supports_truecolor() -> bool`
+- `std.term.supports_256color() -> bool`
+- `std.term.supports_unicode() -> bool`
+- `std.term.supports_mouse() -> bool`
+- `std.term.read_byte() -> result int`
+- `std.term.read_byte_timeout(int) -> result int`
+- `std.term.read_event() -> result std.term.Event`
+- `std.term.read_event_timeout(int) -> result std.term.Event`
+- `std.term.read_paste() -> result str`
+- `std.term.rgb(int, int, int) -> int`
+- `std.term.codepoint_width(int) -> int`
+- `std.term.string_width(str) -> int`
+- `std.term.set_style(int, int, int) -> void`
+- `std.term.reset_style() -> void`
+- `std.term.enable_mouse() -> void`
+- `std.term.disable_mouse() -> void`
+- `std.term.enable_bracketed_paste() -> void`
+- `std.term.disable_bracketed_paste() -> void`
+- `std.term.buffer_new(int, int) -> result ptr std.term.Buffer`
+- `std.term.buffer_resize(ptr std.term.Buffer, int, int, std.term.Cell) -> result bool`
+- `std.term.buffer_free(ptr std.term.Buffer) -> result bool`
+- `std.term.buffer_clear(ptr std.term.Buffer, std.term.Cell) -> result bool`
+- `std.term.buffer_set(ptr std.term.Buffer, int, int, std.term.Cell) -> result bool`
+- `std.term.buffer_get(ptr std.term.Buffer, int, int) -> result std.term.Cell`
+- `std.term.render_diff(ptr std.term.Buffer, ptr std.term.Buffer) -> result bool`
+- `std.term.render_diff_clip(ptr std.term.Buffer, ptr std.term.Buffer, std.term.Clip) -> result bool`
+- `std.term.write(str) -> void`
+- `std.term.flush() -> void`
+- `std.term.clear() -> void`
+- `std.term.clear_line() -> void`
+- `std.term.clear_line_left() -> void`
+- `std.term.clear_line_right() -> void`
+- `std.term.move_cursor(int, int) -> void`
+- `std.term.save_cursor() -> void`
+- `std.term.restore_cursor() -> void`
+- `std.term.hide_cursor() -> void`
+- `std.term.show_cursor() -> void`
+- `std.term.enter_alt_screen() -> void`
+- `std.term.leave_alt_screen() -> void`
+- `std.term.set_scroll_region(int, int) -> void`
+- `std.term.reset_scroll_region() -> void`
+- `std.term.enter_raw_mode() -> result bool`
+- `std.term.leave_raw_mode() -> result bool`
 - `std.time.now_ms() -> int`
 - `std.time.sleep_ms(int) -> void`
 - `std.env.has(str) -> bool`
@@ -315,6 +407,19 @@ Current runtime notes:
 
 - `input()` returns an owned heap-backed string copy in the generated runtime helper.
 - `std.io.read_line()` lowers to the same owned heap-backed runtime helper as `input()`.
+- `std.term` is the first low-level terminal/TUI slice. `write(...)`, `flush()`, `clear()`, line erase helpers, `move_cursor(...)`, save/restore cursor, cursor visibility, alternate-screen toggles, scroll-region helpers, `is_tty()`, terminal size queries, terminal capability queries, raw-mode enter/leave, raw and timed byte/event reads, style/color helpers, width helpers, buffer resize, and screen-buffer diff rendering all lower to embedded terminal helpers. Coordinates in `move_cursor(row, column)` and `set_scroll_region(top, bottom)` are zero-based at the language level and become one-based VT cursor positions in the runtime.
+- `std.term.term_name()` returns an owned runtime string when the terminal name can be discovered.
+- `std.term.supports_truecolor()`, `std.term.supports_256color()`, `std.term.supports_unicode()`, and `std.term.supports_mouse()` lower to terminal-capability helpers built on environment/TTY checks.
+- `std.term.read_byte()` returns one raw input byte as `result int`, and `std.term.read_byte_timeout(timeout_ms)` does the same with a timeout.
+- `std.term.read_event()` returns `result std.term.Event`, and `std.term.read_event_timeout(timeout_ms)` adds a timeout path for polling loops. The current slice can emit `EVENT_KEY`, `EVENT_MOUSE`, `EVENT_RESIZE`, and `EVENT_PASTE`. Keyboard events use printable codepoints or `KEY_*` constants. Mouse events use `MOUSE_*` constants. Resize events report the new terminal size through `event.row` and `event.column`. On Unix, resize polling is now signal-backed through `SIGWINCH` before the runtime re-queries rows and columns. Paste events signal that a bracketed paste started, and `std.term.read_paste()` returns the pasted bytes as an owned string.
+- `std.term.enable_mouse()` / `disable_mouse()` and `std.term.enable_bracketed_paste()` / `disable_bracketed_paste()` lower to terminal escape helpers that turn those input modes on and off.
+- `std.term.rgb(r, g, b)` packs a truecolor value for `set_style(...)`. `std.term.set_style(fg, bg, attrs)` and `std.term.reset_style()` lower to ANSI SGR helpers. The current color surface supports `COLOR_DEFAULT`, the 16-color palette, 256-color integers, and RGB values produced by `rgb(...)`.
+- `std.term.codepoint_width(...)` and `std.term.string_width(...)` lower to runtime width helpers for terminal layout math.
+- `std.term.Cell` is the basic render unit: codepoint, foreground, background, attributes, and a `wide` flag. `buffer_set(...)` now also auto-detects wide codepoints, writes the normalized cell, and stores an internal continuation placeholder in the trailing slot so the diff renderer does not paint that slot separately.
+- `std.term.buffer_new(width, height)` allocates a runtime-owned screen buffer. `buffer_resize(...)`, `buffer_clear(...)`, `buffer_set(...)`, and `buffer_get(...)` operate on zero-based row/column coordinates and return `result` so invalid sizes or out-of-bounds access fail cleanly.
+- `std.term.render_diff(back, front)` compares the desired back buffer against the already-rendered front buffer, emits only changed cells, reuses the current cursor position across adjacent changed cells, copies the rendered cells into `front`, resets the style, and flushes output.
+- `std.term.render_diff_clip(back, front, clip)` does the same work, but only inside the `std.term.Clip` region.
+- `std.term` currently focuses on ANSI-capable terminals and direct terminal control rather than widgets or layouts. It is the foundation layer for future TUI work, not the final TUI framework.
 - `std.time.now_ms()` lowers to a runtime clock helper that returns the current wall-clock time in milliseconds.
 - `std.time.sleep_ms(int)` lowers to a runtime sleep helper.
 - `std.math` currently lowers to integer-only runtime helpers for sign/absolute-value helpers, parity checks, min/max/clamp/between helpers, and `gcd`/`lcm`/distance-style helpers.
@@ -344,6 +449,6 @@ Current runtime notes:
 - `std.process.platform()` and `std.process.arch()` return owned heap-backed copies of the current target platform/architecture strings.
 - `std.process.exit(code)` lowers to a runtime process-exit helper.
 - `std.x11` is currently a tiny experimental Linux-only window module for stress testing real host integration. `open_window(title, width, height)` returns a raw window handle as `result int`, `pump(handle)` reports whether the window should keep running, and `close(handle)` destroys the native window.
-- `free some_string;` releases tracked owned strings created by `input()`, `std.io.read_line()`, `str_copy(...)`, `str_concat(...)`, `std.strings.copy(...)`, `std.strings.concat(...)`, `std.fs.read_text(...)`, `std.fs.cwd(...)`, `std.env.get(...)`, `std.path.join(...)`, `std.path.file_name(...)`, `std.path.stem(...)`, `std.path.extension(...)`, `std.path.parent(...)`, `std.net.join_host_port(...)`, `std.net.recv(...)`, the `host` and `data` fields from successful `std.net.udp_recv_from(...)`, `std.process.platform(...)`, or `std.process.arch(...)`. Freeing string literals is a safe no-op in the generated runtime.
+- `free some_string;` releases tracked owned strings created by `input()`, `std.io.read_line()`, `str_copy(...)`, `str_concat(...)`, `std.strings.copy(...)`, `std.strings.concat(...)`, `std.term.read_paste(...)`, `std.term.term_name(...)`, `std.fs.read_text(...)`, `std.fs.cwd(...)`, `std.env.get(...)`, `std.path.join(...)`, `std.path.file_name(...)`, `std.path.stem(...)`, `std.path.extension(...)`, `std.path.parent(...)`, `std.net.join_host_port(...)`, `std.net.recv(...)`, the `host` and `data` fields from successful `std.net.udp_recv_from(...)`, `std.process.platform(...)`, or `std.process.arch(...)`. Freeing string literals is a safe no-op in the generated runtime.
 - `str` equality in the backend is content-based through `strcmp`, not pointer-identity based.
 - The parser now recovers across common statement and top-level syntax errors so one missing `;` does not collapse the whole file into a single follow-on failure.

@@ -1,0 +1,85 @@
+import std.io as io;
+import std.term as term;
+
+fn:int main() {
+    let tty:bool = term.is_tty();
+    let cols:result int = term.columns();
+    let rows:result int = term.rows();
+    let raw:result bool = term.enter_raw_mode();
+
+    if raw.ok {
+        term.enable_mouse();
+        term.enable_bracketed_paste();
+
+        let next_byte:result int = term.read_byte();
+        let next_event:result term.Event = term.read_event();
+
+        if next_byte.ok {
+            if next_byte.value == 27 {
+                term.write("");
+            }
+        }
+
+        if next_event.ok {
+            if next_event.value.kind == term.EVENT_KEY {
+                if next_event.value.code == term.KEY_ESCAPE {
+                    term.write("");
+                }
+
+                if next_event.value.modifiers == term.MOD_ALT {
+                    term.write("");
+                }
+            }
+
+            if next_event.value.kind == term.EVENT_MOUSE {
+                if next_event.value.code == term.MOUSE_LEFT {
+                    term.write("");
+                }
+
+                if next_event.value.row >= 0 {
+                    term.write("");
+                }
+            }
+
+            if next_event.value.kind == term.EVENT_RESIZE {
+                if next_event.value.column >= 0 {
+                    term.write("");
+                }
+            }
+
+            if next_event.value.kind == term.EVENT_PASTE {
+                let pasted:result str = term.read_paste();
+
+                if pasted.ok {
+                    term.write("");
+                    free pasted.value;
+                }
+            }
+        }
+
+        term.disable_bracketed_paste();
+        term.disable_mouse();
+
+        let restored:result bool = term.leave_raw_mode();
+        if restored.ok == false {
+            return 1;
+        }
+    }
+
+    if tty {
+        term.enter_alt_screen();
+        term.clear();
+        term.hide_cursor();
+        term.move_cursor(0, 0);
+        term.write("cnegative std.term");
+        term.flush();
+        term.show_cursor();
+        term.leave_alt_screen();
+    }
+
+    if cols.ok && rows.ok {
+        io.write_line("term surface ready");
+    }
+
+    return 0;
+}
