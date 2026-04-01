@@ -1,0 +1,4 @@
+fn:int main() {
+    try value = 7;
+    return value;
+}

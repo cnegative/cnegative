@@ -95,6 +95,8 @@ static bool cn_parser_is_statement_start(cn_token_kind kind) {
     return kind == CN_TOKEN_LET ||
            kind == CN_TOKEN_RETURN ||
            kind == CN_TOKEN_FREE ||
+           kind == CN_TOKEN_DEFER ||
+           kind == CN_TOKEN_TRY ||
            kind == CN_TOKEN_IF ||
            kind == CN_TOKEN_WHILE ||
            kind == CN_TOKEN_LOOP ||
@@ -220,6 +222,13 @@ static cn_type_ref *cn_parse_type_base(cn_parser *parser) {
             return NULL;
         }
         return cn_type_create(parser->allocator, CN_TYPE_PTR, token->lexeme, inner, token->offset);
+    }
+    if (cn_parser_match(parser, CN_TOKEN_SLICE)) {
+        cn_type_ref *inner = cn_parse_type(parser);
+        if (inner == NULL) {
+            return NULL;
+        }
+        return cn_type_create(parser->allocator, CN_TYPE_SLICE, token->lexeme, inner, token->offset);
     }
     if (cn_parser_match(parser, CN_TOKEN_IDENTIFIER)) {
         if (cn_parser_match(parser, CN_TOKEN_DOT)) {
@@ -492,15 +501,47 @@ static cn_expr *cn_parse_postfix(cn_parser *parser) {
         }
 
         if (cn_parser_match(parser, CN_TOKEN_LBRACKET)) {
-            cn_expr *index_value = cn_parse_expression(parser);
+            cn_expr *start_or_index = NULL;
+            if (!cn_parser_check(parser, CN_TOKEN_RANGE) && !cn_parser_check(parser, CN_TOKEN_RBRACKET)) {
+                start_or_index = cn_parse_expression(parser);
+                if (start_or_index == NULL) {
+                    return expression;
+                }
+            }
+
+            if (cn_parser_match(parser, CN_TOKEN_RANGE)) {
+                cn_expr *end = NULL;
+                if (!cn_parser_check(parser, CN_TOKEN_RBRACKET)) {
+                    end = cn_parse_expression(parser);
+                    if (end == NULL) {
+                        return expression;
+                    }
+                }
+
+                cn_parser_consume(parser, CN_TOKEN_RBRACKET, "expected ']' after slice expression");
+                cn_expr *slice_expr = cn_expr_create(parser->allocator, CN_EXPR_SLICE_VIEW, expression->offset);
+                slice_expr->data.slice_view.base = expression;
+                slice_expr->data.slice_view.start = start_or_index;
+                slice_expr->data.slice_view.end = end;
+                expression = slice_expr;
+                continue;
+            }
+
             cn_parser_consume(parser, CN_TOKEN_RBRACKET, "expected ']' after index expression");
-            if (index_value == NULL) {
+            if (start_or_index == NULL) {
+                cn_diag_emit(
+                    parser->diagnostics,
+                    CN_DIAG_ERROR,
+                    "E1002",
+                    expression->offset,
+                    "expected an index expression before ']'"
+                );
                 return expression;
             }
 
             cn_expr *index_expr = cn_expr_create(parser->allocator, CN_EXPR_INDEX, expression->offset);
             index_expr->data.index.base = expression;
-            index_expr->data.index.index = index_value;
+            index_expr->data.index.index = start_or_index;
             expression = index_expr;
             continue;
         }
@@ -705,6 +746,21 @@ static cn_stmt *cn_parse_return_statement(cn_parser *parser, const cn_token *ret
     return statement;
 }
 
+static cn_stmt *cn_parse_try_statement(cn_parser *parser, const cn_token *try_token) {
+    const cn_token *name = cn_parser_consume(parser, CN_TOKEN_IDENTIFIER, "expected binding name after 'try'");
+    cn_parser_consume(parser, CN_TOKEN_EQUAL, "expected '=' after try binding name");
+    cn_expr *initializer = cn_parse_expression(parser);
+    cn_parser_require_semicolon(parser, "expected ';' after try statement");
+    if (name == NULL || initializer == NULL) {
+        return NULL;
+    }
+
+    cn_stmt *statement = cn_stmt_create(parser->allocator, CN_STMT_TRY, try_token->offset);
+    statement->data.try_stmt.name = name->lexeme;
+    statement->data.try_stmt.initializer = initializer;
+    return statement;
+}
+
 static cn_stmt *cn_parse_free_statement(cn_parser *parser, const cn_token *free_token) {
     cn_expr *value = cn_parse_expression(parser);
     cn_parser_require_semicolon(parser, "expected ';' after free statement");
@@ -714,6 +770,32 @@ static cn_stmt *cn_parse_free_statement(cn_parser *parser, const cn_token *free_
 
     cn_stmt *statement = cn_stmt_create(parser->allocator, CN_STMT_FREE, free_token->offset);
     statement->data.free_stmt.value = value;
+    return statement;
+}
+
+static cn_stmt *cn_parse_defer_statement(cn_parser *parser, const cn_token *defer_token) {
+    cn_stmt *deferred = NULL;
+
+    if (cn_parser_check(parser, CN_TOKEN_FREE)) {
+        const cn_token *free_token = cn_parser_advance(parser);
+        deferred = cn_parse_free_statement(parser, free_token);
+    } else {
+        cn_expr *value = cn_parse_expression(parser);
+        cn_parser_require_semicolon(parser, "expected ';' after defer statement");
+        if (value == NULL) {
+            return NULL;
+        }
+
+        deferred = cn_stmt_create(parser->allocator, CN_STMT_EXPR, value->offset);
+        deferred->data.expr_stmt.value = value;
+    }
+
+    if (deferred == NULL) {
+        return NULL;
+    }
+
+    cn_stmt *statement = cn_stmt_create(parser->allocator, CN_STMT_DEFER, defer_token->offset);
+    statement->data.defer_stmt.statement = deferred;
     return statement;
 }
 
@@ -831,9 +913,17 @@ static cn_stmt *cn_parse_statement(cn_parser *parser) {
         const cn_token *token = cn_parser_advance(parser);
         return cn_parse_return_statement(parser, token);
     }
+    if (cn_parser_check(parser, CN_TOKEN_TRY)) {
+        const cn_token *token = cn_parser_advance(parser);
+        return cn_parse_try_statement(parser, token);
+    }
     if (cn_parser_check(parser, CN_TOKEN_FREE)) {
         const cn_token *token = cn_parser_advance(parser);
         return cn_parse_free_statement(parser, token);
+    }
+    if (cn_parser_check(parser, CN_TOKEN_DEFER)) {
+        const cn_token *token = cn_parser_advance(parser);
+        return cn_parse_defer_statement(parser, token);
     }
     if (cn_parser_check(parser, CN_TOKEN_IF)) {
         const cn_token *token = cn_parser_advance(parser);

@@ -1,0 +1,65 @@
+import std.bytes as bytes;
+import std.io as io;
+import std.text as text;
+
+fn:result int run() {
+    try buffer = bytes.new();
+
+    let seed:byte[3] = [7, 8, 9];
+    if bytes.append(buffer, seed).ok == false {
+        bytes.release(buffer);
+        return err;
+    }
+    if bytes.set(buffer, 1, 4).ok == false {
+        bytes.release(buffer);
+        return err;
+    }
+
+    let view:slice byte = bytes.view(buffer);
+    let middle:slice byte = view[1..3];
+    try picked = bytes.get(buffer, 1);
+
+    let builder_result:result ptr text.Builder = text.new();
+    if builder_result.ok == false {
+        bytes.release(buffer);
+        return err;
+    }
+    let builder:ptr text.Builder = builder_result.value;
+
+    if text.append(builder, "slice ready").ok == false {
+        text.release(builder);
+        bytes.release(buffer);
+        return err;
+    }
+    if text.push_byte(builder, 33).ok == false {
+        text.release(builder);
+        bytes.release(buffer);
+        return err;
+    }
+
+    let message_result:result str = text.build(builder);
+    if message_result.ok == false {
+        text.release(builder);
+        bytes.release(buffer);
+        return err;
+    }
+    let message:str = message_result.value;
+    io.write_line(message);
+    free message;
+
+    let mut score:int = view.length + middle.length;
+    if picked == 4 {
+        score = score + 20;
+    }
+    text.release(builder);
+    bytes.release(buffer);
+    return ok score;
+}
+
+fn:int main() {
+    let outcome:result int = run();
+    if outcome.ok == false {
+        return 1;
+    }
+    return outcome.value;
+}

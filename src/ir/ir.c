@@ -32,6 +32,7 @@ static cn_ir_type_kind cn_ir_type_kind_from_ast(cn_type_kind kind) {
     case CN_TYPE_VOID: return CN_IR_TYPE_VOID;
     case CN_TYPE_RESULT: return CN_IR_TYPE_RESULT;
     case CN_TYPE_PTR: return CN_IR_TYPE_PTR;
+    case CN_TYPE_SLICE: return CN_IR_TYPE_SLICE;
     case CN_TYPE_ARRAY: return CN_IR_TYPE_ARRAY;
     case CN_TYPE_NAMED: return CN_IR_TYPE_NAMED;
     case CN_TYPE_UNKNOWN: return CN_IR_TYPE_UNKNOWN;
@@ -119,6 +120,12 @@ void cn_ir_type_describe(const cn_ir_type *type, char *buffer, size_t buffer_siz
         char inner[128];
         cn_ir_type_describe(type->inner, inner, sizeof(inner));
         snprintf(buffer, buffer_size, "ptr %s", inner);
+        break;
+    }
+    case CN_IR_TYPE_SLICE: {
+        char inner[128];
+        cn_ir_type_describe(type->inner, inner, sizeof(inner));
+        snprintf(buffer, buffer_size, "slice %s", inner);
         break;
     }
     case CN_IR_TYPE_ARRAY: {
@@ -216,6 +223,9 @@ cn_ir_function *cn_ir_function_create(cn_allocator *allocator, cn_strview module
     function->parameters.count = 0;
     function->parameters.capacity = 0;
     function->body = NULL;
+    function->owned_names = NULL;
+    function->owned_name_count = 0;
+    function->owned_name_capacity = 0;
     function->offset = offset;
     return function;
 }
@@ -384,9 +394,17 @@ static void cn_ir_expr_destroy(cn_allocator *allocator, cn_ir_expr *expression) 
         }
         CN_FREE(allocator, expression->data.array_literal.items.items);
         break;
+    case CN_IR_EXPR_SLICE_FROM_ARRAY:
+        cn_ir_expr_destroy(allocator, expression->data.slice_from_array.base);
+        break;
     case CN_IR_EXPR_INDEX:
         cn_ir_expr_destroy(allocator, expression->data.index.base);
         cn_ir_expr_destroy(allocator, expression->data.index.index);
+        break;
+    case CN_IR_EXPR_SLICE_VIEW:
+        cn_ir_expr_destroy(allocator, expression->data.slice_view.base);
+        cn_ir_expr_destroy(allocator, expression->data.slice_view.start);
+        cn_ir_expr_destroy(allocator, expression->data.slice_view.end);
         break;
     case CN_IR_EXPR_FIELD:
         cn_ir_expr_destroy(allocator, expression->data.field.base);
@@ -488,6 +506,10 @@ static void cn_ir_function_destroy(cn_allocator *allocator, cn_ir_function *func
     for (size_t i = 0; i < function->parameters.count; ++i) {
         cn_ir_type_destroy(allocator, function->parameters.items[i].type);
     }
+    for (size_t i = 0; i < function->owned_name_count; ++i) {
+        CN_FREE(allocator, function->owned_names[i]);
+    }
+    CN_FREE(allocator, function->owned_names);
     CN_FREE(allocator, function->parameters.items);
     cn_ir_block_destroy(allocator, function->body);
     CN_FREE(allocator, function);
@@ -669,10 +691,26 @@ static void cn_ir_dump_expr(FILE *stream, const cn_ir_expr *expression) {
         }
         fputc(']', stream);
         break;
+    case CN_IR_EXPR_SLICE_FROM_ARRAY:
+        fputs("slice ", stream);
+        cn_ir_dump_expr(stream, expression->data.slice_from_array.base);
+        break;
     case CN_IR_EXPR_INDEX:
         cn_ir_dump_expr(stream, expression->data.index.base);
         fputc('[', stream);
         cn_ir_dump_expr(stream, expression->data.index.index);
+        fputc(']', stream);
+        break;
+    case CN_IR_EXPR_SLICE_VIEW:
+        cn_ir_dump_expr(stream, expression->data.slice_view.base);
+        fputc('[', stream);
+        if (expression->data.slice_view.start != NULL) {
+            cn_ir_dump_expr(stream, expression->data.slice_view.start);
+        }
+        fputs("..", stream);
+        if (expression->data.slice_view.end != NULL) {
+            cn_ir_dump_expr(stream, expression->data.slice_view.end);
+        }
         fputc(']', stream);
         break;
     case CN_IR_EXPR_FIELD:

@@ -84,6 +84,16 @@ static cn_type_ref *cn_builtin_ptr_type(cn_allocator *allocator, cn_type_ref *in
     );
 }
 
+static cn_type_ref *cn_builtin_slice_type(cn_allocator *allocator, cn_type_ref *inner) {
+    return cn_type_create(
+        allocator,
+        CN_TYPE_SLICE,
+        cn_sv_from_cstr("slice"),
+        inner,
+        0
+    );
+}
+
 static cn_function *cn_builtin_function_create(
     cn_allocator *allocator,
     const char *name,
@@ -151,7 +161,9 @@ static void cn_builtin_source_init(cn_allocator *allocator, cn_source *source, c
 
 static bool cn_is_builtin_stdlib_module_name(cn_strview module_name) {
     return cn_sv_eq_cstr(module_name, "std.math") ||
+           cn_sv_eq_cstr(module_name, "std.bytes") ||
            cn_sv_eq_cstr(module_name, "std.strings") ||
+           cn_sv_eq_cstr(module_name, "std.text") ||
            cn_sv_eq_cstr(module_name, "std.parse") ||
            cn_sv_eq_cstr(module_name, "std.fs") ||
            cn_sv_eq_cstr(module_name, "std.io") ||
@@ -233,6 +245,131 @@ static cn_program *cn_builtin_stdlib_program(cn_allocator *allocator, const char
         return program;
     }
 
+    if (strcmp(module_name, "std.bytes") == 0) {
+        cn_struct_decl *buffer = cn_builtin_struct_create(allocator, "Buffer");
+        cn_builtin_push_struct_field(allocator, buffer, "data", cn_builtin_ptr_type(allocator, cn_builtin_primitive_type(allocator, CN_TYPE_U8)));
+        cn_builtin_push_struct_field(allocator, buffer, "length", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_struct_field(allocator, buffer, "capacity", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_struct(program, buffer);
+
+        cn_function *new_buffer = cn_builtin_function_create(
+            allocator,
+            "new",
+            cn_builtin_result_wrapped_type(
+                allocator,
+                cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.bytes", "Buffer"))
+            )
+        );
+        cn_program_push_function(program, new_buffer);
+
+        cn_function *with_capacity = cn_builtin_function_create(
+            allocator,
+            "with_capacity",
+            cn_builtin_result_wrapped_type(
+                allocator,
+                cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.bytes", "Buffer"))
+            )
+        );
+        cn_builtin_push_param(allocator, with_capacity, "capacity", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, with_capacity);
+
+        cn_function *free_buffer = cn_builtin_function_create(allocator, "release", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(
+            allocator,
+            free_buffer,
+            "buffer",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.bytes", "Buffer"))
+        );
+        cn_program_push_function(program, free_buffer);
+
+        cn_function *clear = cn_builtin_function_create(allocator, "clear", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(
+            allocator,
+            clear,
+            "buffer",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.bytes", "Buffer"))
+        );
+        cn_program_push_function(program, clear);
+
+        cn_function *length = cn_builtin_function_create(allocator, "length", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(
+            allocator,
+            length,
+            "buffer",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.bytes", "Buffer"))
+        );
+        cn_program_push_function(program, length);
+
+        cn_function *capacity = cn_builtin_function_create(allocator, "capacity", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(
+            allocator,
+            capacity,
+            "buffer",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.bytes", "Buffer"))
+        );
+        cn_program_push_function(program, capacity);
+
+        cn_function *push = cn_builtin_function_create(allocator, "push", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(
+            allocator,
+            push,
+            "buffer",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.bytes", "Buffer"))
+        );
+        cn_builtin_push_param(allocator, push, "value", cn_builtin_primitive_type(allocator, CN_TYPE_U8));
+        cn_program_push_function(program, push);
+
+        cn_function *append = cn_builtin_function_create(allocator, "append", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(
+            allocator,
+            append,
+            "buffer",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.bytes", "Buffer"))
+        );
+        cn_builtin_push_param(
+            allocator,
+            append,
+            "values",
+            cn_builtin_slice_type(allocator, cn_builtin_primitive_type(allocator, CN_TYPE_U8))
+        );
+        cn_program_push_function(program, append);
+
+        cn_function *get = cn_builtin_function_create(allocator, "get", cn_builtin_result_type(allocator, CN_TYPE_U8));
+        cn_builtin_push_param(
+            allocator,
+            get,
+            "buffer",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.bytes", "Buffer"))
+        );
+        cn_builtin_push_param(allocator, get, "index", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, get);
+
+        cn_function *set = cn_builtin_function_create(allocator, "set", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(
+            allocator,
+            set,
+            "buffer",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.bytes", "Buffer"))
+        );
+        cn_builtin_push_param(allocator, set, "index", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, set, "value", cn_builtin_primitive_type(allocator, CN_TYPE_U8));
+        cn_program_push_function(program, set);
+
+        cn_function *slice = cn_builtin_function_create(
+            allocator,
+            "view",
+            cn_builtin_slice_type(allocator, cn_builtin_primitive_type(allocator, CN_TYPE_U8))
+        );
+        cn_builtin_push_param(
+            allocator,
+            slice,
+            "buffer",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.bytes", "Buffer"))
+        );
+        cn_program_push_function(program, slice);
+        return program;
+    }
+
     if (strcmp(module_name, "std.strings") == 0) {
         cn_function *length = cn_builtin_function_create(allocator, "len", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
         cn_builtin_push_param(allocator, length, "value", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
@@ -261,6 +398,114 @@ static cn_program *cn_builtin_stdlib_program(cn_allocator *allocator, const char
         cn_builtin_push_param(allocator, ends_with, "value", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
         cn_builtin_push_param(allocator, ends_with, "suffix", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
         cn_program_push_function(program, ends_with);
+        return program;
+    }
+
+    if (strcmp(module_name, "std.text") == 0) {
+        cn_struct_decl *builder = cn_builtin_struct_create(allocator, "Builder");
+        cn_builtin_push_struct_field(allocator, builder, "data", cn_builtin_ptr_type(allocator, cn_builtin_primitive_type(allocator, CN_TYPE_U8)));
+        cn_builtin_push_struct_field(allocator, builder, "length", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_struct_field(allocator, builder, "capacity", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_struct(program, builder);
+
+        cn_function *new_builder = cn_builtin_function_create(
+            allocator,
+            "new",
+            cn_builtin_result_wrapped_type(
+                allocator,
+                cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.text", "Builder"))
+            )
+        );
+        cn_program_push_function(program, new_builder);
+
+        cn_function *with_capacity = cn_builtin_function_create(
+            allocator,
+            "with_capacity",
+            cn_builtin_result_wrapped_type(
+                allocator,
+                cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.text", "Builder"))
+            )
+        );
+        cn_builtin_push_param(allocator, with_capacity, "capacity", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, with_capacity);
+
+        cn_function *free_builder = cn_builtin_function_create(allocator, "release", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(
+            allocator,
+            free_builder,
+            "builder",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.text", "Builder"))
+        );
+        cn_program_push_function(program, free_builder);
+
+        cn_function *clear = cn_builtin_function_create(allocator, "clear", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(
+            allocator,
+            clear,
+            "builder",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.text", "Builder"))
+        );
+        cn_program_push_function(program, clear);
+
+        cn_function *length = cn_builtin_function_create(allocator, "length", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(
+            allocator,
+            length,
+            "builder",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.text", "Builder"))
+        );
+        cn_program_push_function(program, length);
+
+        cn_function *capacity = cn_builtin_function_create(allocator, "capacity", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(
+            allocator,
+            capacity,
+            "builder",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.text", "Builder"))
+        );
+        cn_program_push_function(program, capacity);
+
+        cn_function *append = cn_builtin_function_create(allocator, "append", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(
+            allocator,
+            append,
+            "builder",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.text", "Builder"))
+        );
+        cn_builtin_push_param(allocator, append, "value", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, append);
+
+        cn_function *push_byte = cn_builtin_function_create(allocator, "push_byte", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(
+            allocator,
+            push_byte,
+            "builder",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.text", "Builder"))
+        );
+        cn_builtin_push_param(allocator, push_byte, "value", cn_builtin_primitive_type(allocator, CN_TYPE_U8));
+        cn_program_push_function(program, push_byte);
+
+        cn_function *build = cn_builtin_function_create(allocator, "build", cn_builtin_result_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(
+            allocator,
+            build,
+            "builder",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.text", "Builder"))
+        );
+        cn_program_push_function(program, build);
+
+        cn_function *slice = cn_builtin_function_create(
+            allocator,
+            "view",
+            cn_builtin_slice_type(allocator, cn_builtin_primitive_type(allocator, CN_TYPE_U8))
+        );
+        cn_builtin_push_param(
+            allocator,
+            slice,
+            "builder",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.text", "Builder"))
+        );
+        cn_program_push_function(program, slice);
         return program;
     }
 
@@ -508,6 +753,16 @@ static cn_program *cn_builtin_stdlib_program(cn_allocator *allocator, const char
         cn_function *string_width = cn_builtin_function_create(allocator, "string_width", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
         cn_builtin_push_param(allocator, string_width, "value", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
         cn_program_push_function(program, string_width);
+
+        cn_function *decode_codepoint = cn_builtin_function_create(allocator, "decode_codepoint", cn_builtin_result_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, decode_codepoint, "value", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(allocator, decode_codepoint, "offset", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, decode_codepoint);
+
+        cn_function *next_codepoint_offset = cn_builtin_function_create(allocator, "next_codepoint_offset", cn_builtin_result_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, next_codepoint_offset, "value", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(allocator, next_codepoint_offset, "offset", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, next_codepoint_offset);
 
         cn_function *set_style = cn_builtin_function_create(allocator, "set_style", cn_builtin_primitive_type(allocator, CN_TYPE_VOID));
         cn_builtin_push_param(allocator, set_style, "fg", cn_builtin_primitive_type(allocator, CN_TYPE_INT));

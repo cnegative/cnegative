@@ -36,7 +36,7 @@
 - `E3021`: LLVM IR backend does not support the requested checked feature yet.
 - `E3022`: external backend toolchain step failed.
 - `E3023`: public API exposes a private type.
-- `E3024`: `result.value` is used without a proven-ok guard.
+- `E3024`: `result.value` is used without a proven-ok check.
 - `E3025`: module-level constant initializer uses a runtime-only operation.
 - `E3026`: cyclic module-level constant definition.
 - `E3027`: duplicate or conflicting top-level constant name.
@@ -45,6 +45,8 @@
 - `E3030`: `if` expression branch types do not match.
 - `E3031`: `addr` target is not addressable.
 - `E3032`: `deref` requires a pointer value.
+- `E3033`: `try` used outside a `result ...` function.
+- `E3034`: `try` initializer is not a `result ...` value.
 
 ## Diagnostic Style
 

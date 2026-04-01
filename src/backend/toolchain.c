@@ -219,9 +219,17 @@ static bool cn_backend_expr_uses_builtin_module(const cn_ir_expr *expression, co
                cn_backend_expr_list_uses_builtin_module(&expression->data.call.arguments, module_name);
     case CN_IR_EXPR_ARRAY_LITERAL:
         return cn_backend_expr_list_uses_builtin_module(&expression->data.array_literal.items, module_name);
+    case CN_IR_EXPR_SLICE_FROM_ARRAY:
+        return cn_backend_expr_uses_builtin_module(expression->data.slice_from_array.base, module_name);
     case CN_IR_EXPR_INDEX:
         return cn_backend_expr_uses_builtin_module(expression->data.index.base, module_name) ||
                cn_backend_expr_uses_builtin_module(expression->data.index.index, module_name);
+    case CN_IR_EXPR_SLICE_VIEW:
+        return cn_backend_expr_uses_builtin_module(expression->data.slice_view.base, module_name) ||
+               (expression->data.slice_view.start != NULL &&
+                cn_backend_expr_uses_builtin_module(expression->data.slice_view.start, module_name)) ||
+               (expression->data.slice_view.end != NULL &&
+                cn_backend_expr_uses_builtin_module(expression->data.slice_view.end, module_name));
     case CN_IR_EXPR_FIELD:
         return cn_backend_expr_uses_builtin_module(expression->data.field.base, module_name);
     case CN_IR_EXPR_STRUCT_LITERAL:

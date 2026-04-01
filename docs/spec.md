@@ -79,6 +79,13 @@ Implemented composite type forms:
 
 - `ptr T`
 - `result T`
+- `slice T`
+
+Current slice rule:
+
+- `slice T` is a non-owning view over contiguous `T` values.
+- Arrays can be used where `slice T` is expected when the element type matches.
+- Slices currently expose `.length`, indexing, and subslicing with `[..]`.
 
 ### Control Flow
 
@@ -154,7 +161,9 @@ The initial standard library is imported through builtin modules using the same 
 
 ```lang
 import std.math as math;
+import std.bytes as bytes;
 import std.strings as strings;
+import std.text as text;
 import std.parse as parse;
 import std.fs as fs;
 import std.term as term;
@@ -178,12 +187,35 @@ Current builtin stdlib surface:
 - `std.math.lcm(int, int) -> int`
 - `std.math.distance(int, int) -> int`
 - `std.math.between(int, int, int) -> bool`
+- `std.bytes.Buffer { data:ptr u8; length:int; capacity:int }`
+- `std.bytes.new() -> result ptr std.bytes.Buffer`
+- `std.bytes.with_capacity(int) -> result ptr std.bytes.Buffer`
+- `std.bytes.release(ptr std.bytes.Buffer) -> result bool`
+- `std.bytes.clear(ptr std.bytes.Buffer) -> result bool`
+- `std.bytes.length(ptr std.bytes.Buffer) -> int`
+- `std.bytes.capacity(ptr std.bytes.Buffer) -> int`
+- `std.bytes.push(ptr std.bytes.Buffer, u8) -> result bool`
+- `std.bytes.append(ptr std.bytes.Buffer, slice u8) -> result bool`
+- `std.bytes.get(ptr std.bytes.Buffer, int) -> result u8`
+- `std.bytes.set(ptr std.bytes.Buffer, int, u8) -> result bool`
+- `std.bytes.view(ptr std.bytes.Buffer) -> slice u8`
 - `std.strings.len(str) -> int`
 - `std.strings.copy(str) -> str`
 - `std.strings.concat(str, str) -> str`
 - `std.strings.eq(str, str) -> bool`
 - `std.strings.starts_with(str, str) -> bool`
 - `std.strings.ends_with(str, str) -> bool`
+- `std.text.Builder { data:ptr u8; length:int; capacity:int }`
+- `std.text.new() -> result ptr std.text.Builder`
+- `std.text.with_capacity(int) -> result ptr std.text.Builder`
+- `std.text.release(ptr std.text.Builder) -> result bool`
+- `std.text.clear(ptr std.text.Builder) -> result bool`
+- `std.text.length(ptr std.text.Builder) -> int`
+- `std.text.capacity(ptr std.text.Builder) -> int`
+- `std.text.append(ptr std.text.Builder, str) -> result bool`
+- `std.text.push_byte(ptr std.text.Builder, u8) -> result bool`
+- `std.text.build(ptr std.text.Builder) -> result str`
+- `std.text.view(ptr std.text.Builder) -> slice u8`
 - `std.parse.to_int(str) -> result int`
 - `std.parse.to_bool(str) -> result bool`
 - `std.fs.exists(str) -> bool`
@@ -261,6 +293,8 @@ Current builtin stdlib surface:
 - `std.term.rgb(int, int, int) -> int`
 - `std.term.codepoint_width(int) -> int`
 - `std.term.string_width(str) -> int`
+- `std.term.decode_codepoint(str, int) -> result int`
+- `std.term.next_codepoint_offset(str, int) -> result int`
 - `std.term.set_style(int, int, int) -> void`
 - `std.term.reset_style() -> void`
 - `std.term.enable_mouse() -> void`
@@ -381,7 +415,79 @@ Current checked rule for `result` access:
 - `.ok` is always readable.
 - `.value` requires proof in the current scope that the named result is ok.
 - `if r.ok { return r.value; }` is valid.
-- `return r.value;` without such a guard is rejected.
+- `if r.ok == false { return err; }` is also a valid proof pattern.
+- `return r.value;` without such a proof is rejected.
+
+`try` is the shortcut for the common unwrap-or-return path inside `result ...` functions:
+
+```lang
+fn:result int plus_one(value:int) {
+    try inner = divide(value, 2);
+    return ok (inner + 1);
+}
+```
+
+Current checked rule for `try`:
+
+- the enclosing function must return `result ...`
+- the initializer must also have type `result ...`
+- on success, the binding after `try` has the unwrapped inner type
+- on failure, `try` returns `err` from the current function
+
+`defer` runs cleanup when the current scope exits:
+
+```lang
+fn:result int load() {
+    let heap:ptr int = alloc int;
+    defer free heap;
+    return ok 1;
+}
+```
+
+Current `defer` surface is intentionally small:
+
+- `defer expr;`
+- `defer free value;`
+
+String literals now also support raw multiline backtick form:
+
+```lang
+let banner:str = `cnegative
+rocks`;
+```
+
+Backtick strings keep the inner text as-is and can span lines.
+
+### Arrays and Slices
+
+Arrays own a fixed-size block of values:
+
+```lang
+let data:int[4] = [3, 4, 5, 6];
+```
+
+Slices are lightweight views over that contiguous data:
+
+```lang
+fn:int sum(xs:slice int) {
+    return xs[0] + xs[1] + xs.length;
+}
+
+fn:int main() {
+    let data:int[4] = [3, 4, 5, 6];
+    let view:slice int = data;
+    return sum(view);
+}
+```
+
+Current slice rules:
+
+- `slice T` does not own memory by itself.
+- A matching array can be assigned to a `slice T` binding.
+- A matching array can be passed directly to a function that expects `slice T`.
+- Slice field access is currently limited to `.length`.
+- Indexing works on both arrays and slices.
+- Subslicing works on both arrays and slices with forms such as `xs[1..4]`, `xs[..4]`, and `xs[1..]`.
 
 ## Current Pipeline
 
@@ -401,13 +507,15 @@ Source
 
 `build/cnegc ir <file>` dumps the checked project as typed IR after constant folding and simple dead-statement cleanup. The current IR keeps structured control flow, preserves explicit returns, and resolves module-qualified calls and constants to canonical module names.
 
-`build/cnegc llvm-ir <file>` lowers the checked subset into textual LLVM IR. The current backend handles `int`, `bool`, `str`, arrays, structs, `ptr`, `result`, structured control flow, local bindings, allocation/free, local calls, and imported module calls. `build/cnegc obj <file> [output]` emits an object file, and `build/cnegc build <file> [output]` links a runnable binary through `clang-18` or `clang`.
+`build/cnegc llvm-ir <file>` lowers the checked subset into textual LLVM IR. The current backend handles `int`, `bool`, `str`, arrays, slices, structs, `ptr`, `result`, structured control flow, local bindings, allocation/free, local calls, and imported module calls. `build/cnegc obj <file> [output]` emits an object file, and `build/cnegc build <file> [output]` links a runnable binary through `clang-18` or `clang`.
 
 Current runtime notes:
 
 - `input()` returns an owned heap-backed string copy in the generated runtime helper.
 - `std.io.read_line()` lowers to the same owned heap-backed runtime helper as `input()`.
 - `std.term` is the first low-level terminal/TUI slice. `write(...)`, `flush()`, `clear()`, line erase helpers, `move_cursor(...)`, save/restore cursor, cursor visibility, alternate-screen toggles, scroll-region helpers, `is_tty()`, terminal size queries, terminal capability queries, raw-mode enter/leave, raw and timed byte/event reads, style/color helpers, width helpers, buffer resize, and screen-buffer diff rendering all lower to embedded terminal helpers. Coordinates in `move_cursor(row, column)` and `set_scroll_region(top, bottom)` are zero-based at the language level and become one-based VT cursor positions in the runtime.
+- `std.bytes` is the first dynamic byte-storage slice built on top of core `slice T`. `Buffer` is a growable heap-owned byte container. `new()`, `with_capacity(...)`, `release(...)`, `clear(...)`, `length(...)`, `capacity(...)`, `push(...)`, `append(...)`, `get(...)`, `set(...)`, and `view(...)` lower to embedded runtime helpers. `view(...)` returns a non-owning `slice u8` over the current buffer contents.
+- `std.text` is the first dynamic text-building slice built on top of `std.bytes`. `Builder` uses the same growable storage shape, but `append(...)` accepts `str`, `push_byte(...)` appends one byte, `view(...)` returns a `slice u8`, and `build(...)` returns a freshly owned `str` on success.
 - `std.term.term_name()` returns an owned runtime string when the terminal name can be discovered.
 - `std.term.supports_truecolor()`, `std.term.supports_256color()`, `std.term.supports_unicode()`, and `std.term.supports_mouse()` lower to terminal-capability helpers built on environment/TTY checks.
 - `std.term.read_byte()` returns one raw input byte as `result int`, and `std.term.read_byte_timeout(timeout_ms)` does the same with a timeout.
@@ -415,6 +523,8 @@ Current runtime notes:
 - `std.term.enable_mouse()` / `disable_mouse()` and `std.term.enable_bracketed_paste()` / `disable_bracketed_paste()` lower to terminal escape helpers that turn those input modes on and off.
 - `std.term.rgb(r, g, b)` packs a truecolor value for `set_style(...)`. `std.term.set_style(fg, bg, attrs)` and `std.term.reset_style()` lower to ANSI SGR helpers. The current color surface supports `COLOR_DEFAULT`, the 16-color palette, 256-color integers, and RGB values produced by `rgb(...)`.
 - `std.term.codepoint_width(...)` and `std.term.string_width(...)` lower to runtime width helpers for terminal layout math.
+- `std.term.decode_codepoint(text, offset)` and `std.term.next_codepoint_offset(text, offset)` expose UTF-8 stepping helpers so higher-level `.cneg` libraries can walk terminal text without dropping into backend C code.
+- `slice T` currently lowers as a simple `{ ptr, i64 }` pair in LLVM-facing codegen. Array-to-slice coercion materializes a pointer to the first element and the array length.
 - `std.term.Cell` is the basic render unit: codepoint, foreground, background, attributes, and a `wide` flag. `buffer_set(...)` now also auto-detects wide codepoints, writes the normalized cell, and stores an internal continuation placeholder in the trailing slot so the diff renderer does not paint that slot separately.
 - `std.term.buffer_new(width, height)` allocates a runtime-owned screen buffer. `buffer_resize(...)`, `buffer_clear(...)`, `buffer_set(...)`, and `buffer_get(...)` operate on zero-based row/column coordinates and return `result` so invalid sizes or out-of-bounds access fail cleanly.
 - `std.term.render_diff(back, front)` compares the desired back buffer against the already-rendered front buffer, emits only changed cells, reuses the current cursor position across adjacent changed cells, copies the rendered cells into `front`, resets the style, and flushes output.
@@ -449,6 +559,6 @@ Current runtime notes:
 - `std.process.platform()` and `std.process.arch()` return owned heap-backed copies of the current target platform/architecture strings.
 - `std.process.exit(code)` lowers to a runtime process-exit helper.
 - `std.x11` is currently a tiny experimental Linux-only window module for stress testing real host integration. `open_window(title, width, height)` returns a raw window handle as `result int`, `pump(handle)` reports whether the window should keep running, and `close(handle)` destroys the native window.
-- `free some_string;` releases tracked owned strings created by `input()`, `std.io.read_line()`, `str_copy(...)`, `str_concat(...)`, `std.strings.copy(...)`, `std.strings.concat(...)`, `std.term.read_paste(...)`, `std.term.term_name(...)`, `std.fs.read_text(...)`, `std.fs.cwd(...)`, `std.env.get(...)`, `std.path.join(...)`, `std.path.file_name(...)`, `std.path.stem(...)`, `std.path.extension(...)`, `std.path.parent(...)`, `std.net.join_host_port(...)`, `std.net.recv(...)`, the `host` and `data` fields from successful `std.net.udp_recv_from(...)`, `std.process.platform(...)`, or `std.process.arch(...)`. Freeing string literals is a safe no-op in the generated runtime.
+- `free some_string;` releases tracked owned strings created by `input()`, `std.io.read_line()`, `str_copy(...)`, `str_concat(...)`, `std.strings.copy(...)`, `std.strings.concat(...)`, successful `std.text.build(...)`, `std.term.read_paste(...)`, `std.term.term_name(...)`, `std.fs.read_text(...)`, `std.fs.cwd(...)`, `std.env.get(...)`, `std.path.join(...)`, `std.path.file_name(...)`, `std.path.stem(...)`, `std.path.extension(...)`, `std.path.parent(...)`, `std.net.join_host_port(...)`, `std.net.recv(...)`, the `host` and `data` fields from successful `std.net.udp_recv_from(...)`, `std.process.platform(...)`, or `std.process.arch(...)`. Freeing string literals is a safe no-op in the generated runtime.
 - `str` equality in the backend is content-based through `strcmp`, not pointer-identity based.
 - The parser now recovers across common statement and top-level syntax errors so one missing `;` does not collapse the whole file into a single follow-on failure.

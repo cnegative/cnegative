@@ -36,9 +36,17 @@ static void cn_ir_opt_expr_destroy(cn_allocator *allocator, cn_ir_expr *expressi
         }
         CN_FREE(allocator, expression->data.array_literal.items.items);
         break;
+    case CN_IR_EXPR_SLICE_FROM_ARRAY:
+        cn_ir_opt_expr_destroy(allocator, expression->data.slice_from_array.base);
+        break;
     case CN_IR_EXPR_INDEX:
         cn_ir_opt_expr_destroy(allocator, expression->data.index.base);
         cn_ir_opt_expr_destroy(allocator, expression->data.index.index);
+        break;
+    case CN_IR_EXPR_SLICE_VIEW:
+        cn_ir_opt_expr_destroy(allocator, expression->data.slice_view.base);
+        cn_ir_opt_expr_destroy(allocator, expression->data.slice_view.start);
+        cn_ir_opt_expr_destroy(allocator, expression->data.slice_view.end);
         break;
     case CN_IR_EXPR_FIELD:
         cn_ir_opt_expr_destroy(allocator, expression->data.field.base);
@@ -289,9 +297,21 @@ static void cn_ir_optimize_expr(cn_allocator *allocator, cn_ir_expr *expression)
             cn_ir_optimize_expr(allocator, expression->data.array_literal.items.items[i]);
         }
         return;
+    case CN_IR_EXPR_SLICE_FROM_ARRAY:
+        cn_ir_optimize_expr(allocator, expression->data.slice_from_array.base);
+        return;
     case CN_IR_EXPR_INDEX:
         cn_ir_optimize_expr(allocator, expression->data.index.base);
         cn_ir_optimize_expr(allocator, expression->data.index.index);
+        return;
+    case CN_IR_EXPR_SLICE_VIEW:
+        cn_ir_optimize_expr(allocator, expression->data.slice_view.base);
+        if (expression->data.slice_view.start != NULL) {
+            cn_ir_optimize_expr(allocator, expression->data.slice_view.start);
+        }
+        if (expression->data.slice_view.end != NULL) {
+            cn_ir_optimize_expr(allocator, expression->data.slice_view.end);
+        }
         return;
     case CN_IR_EXPR_FIELD:
         cn_ir_optimize_expr(allocator, expression->data.field.base);

@@ -1,0 +1,15 @@
+fn:result int produce(value:int) {
+    defer print("cleanup");
+    if value < 0 {
+        return err;
+    }
+    return ok value;
+}
+
+fn:int main() {
+    let r:result int = produce(-1);
+    if r.ok == false {
+        return 0;
+    }
+    return 1;
+}

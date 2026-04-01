@@ -6,7 +6,9 @@
 
 void cn_llvm_emit_runtime_decls(FILE *stream);
 void cn_llvm_emit_runtime_core(FILE *stream);
+void cn_llvm_emit_runtime_bytes(FILE *stream);
 void cn_llvm_emit_runtime_strings(FILE *stream);
+void cn_llvm_emit_runtime_text(FILE *stream);
 void cn_llvm_emit_runtime_parse(FILE *stream);
 void cn_llvm_emit_runtime_math(FILE *stream);
 void cn_llvm_emit_runtime_time(FILE *stream);

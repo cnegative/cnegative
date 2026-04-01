@@ -1,0 +1,7 @@
+import std.strings as strings;
+
+fn:int main() {
+    let banner:str = `cnegative
+rocks`;
+    return strings.len(banner);
+}

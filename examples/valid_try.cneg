@@ -1,0 +1,19 @@
+fn:result int half(value:int) {
+    if value < 0 {
+        return err;
+    }
+    return ok (value / 2);
+}
+
+fn:result int plus_one(value:int) {
+    try inner = half(value);
+    return ok (inner + 1);
+}
+
+fn:int main() {
+    let r:result int = plus_one(8);
+    if r.ok == false {
+        return 1;
+    }
+    return r.value;
+}

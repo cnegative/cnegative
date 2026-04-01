@@ -12,6 +12,7 @@ typedef enum cn_type_kind {
     CN_TYPE_VOID,
     CN_TYPE_RESULT,
     CN_TYPE_PTR,
+    CN_TYPE_SLICE,
     CN_TYPE_ARRAY,
     CN_TYPE_NAMED,
     CN_TYPE_UNKNOWN
@@ -102,6 +103,7 @@ typedef enum cn_expr_kind {
     CN_EXPR_CALL,
     CN_EXPR_ARRAY_LITERAL,
     CN_EXPR_INDEX,
+    CN_EXPR_SLICE_VIEW,
     CN_EXPR_FIELD,
     CN_EXPR_STRUCT_LITERAL,
     CN_EXPR_OK,
@@ -152,6 +154,11 @@ struct cn_expr {
         } index;
         struct {
             cn_expr *base;
+            cn_expr *start;
+            cn_expr *end;
+        } slice_view;
+        struct {
+            cn_expr *base;
             cn_strview field_name;
         } field;
         struct {
@@ -179,6 +186,8 @@ typedef enum cn_stmt_kind {
     CN_STMT_ASSIGN,
     CN_STMT_RETURN,
     CN_STMT_EXPR,
+    CN_STMT_DEFER,
+    CN_STMT_TRY,
     CN_STMT_IF,
     CN_STMT_WHILE,
     CN_STMT_LOOP,
@@ -217,6 +226,13 @@ struct cn_stmt {
         struct {
             cn_expr *value;
         } expr_stmt;
+        struct {
+            cn_stmt *statement;
+        } defer_stmt;
+        struct {
+            cn_strview name;
+            cn_expr *initializer;
+        } try_stmt;
         struct {
             cn_expr *condition;
             cn_block *then_block;

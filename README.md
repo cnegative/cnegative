@@ -70,15 +70,21 @@ Implemented today:
 - functions and public functions
 - module-level constants with `const` and `pconst`
 - variables with `let` and `let mut`
-- `int`, `u8`, `bool`, `str`, `void`, `ptr`, and `result`
+- `int`, `u8`, `bool`, `str`, `void`, `ptr`, `result`, and `slice`
 - `byte` as a readable alias for `u8`
+- `slice T` as a non-owning view over contiguous values
 - `if`, `else`, `while`, `loop`, and range `for`
 - narrow value-producing `if` expressions in the form `if cond { expr } else { expr }`
+- `defer expr;` and `defer free value;` for scope-exit cleanup
+- `try name = some_result();` inside `result ...` functions for unwrap-or-return flow
 - structs and public structs
 - arrays
+- `slice T` views with `.length`, indexing, subslicing, and array-to-slice coercion
 - field access and indexing
 - module imports and module-qualified public calls
-- initial stdlib modules: `std.math`, `std.strings`, `std.parse`, `std.fs`, `std.io`, `std.term`, `std.time`, `std.env`, `std.path`, `std.net`, `std.process`, and the experimental Linux-only `std.x11`
+- initial stdlib modules: `std.math`, `std.bytes`, `std.strings`, `std.text`, `std.parse`, `std.fs`, `std.io`, `std.term`, `std.time`, `std.env`, `std.path`, `std.net`, `std.process`, and the experimental Linux-only `std.x11`
+- `std.bytes.Buffer` as a growable byte container with append, get/set, and slice-view helpers
+- `std.text.Builder` as a growable text builder that can accumulate strings and return a final owned `str`
 - a low-level terminal foundation through `std.term`, including capability queries, raw and timed byte/event reads, key/mouse/resize/paste events, cursor/scroll control, style/color control including RGB helpers, width helpers, buffer resize, and clipped diff rendering
 - beginner-first blocking IPv4 TCP and UDP helpers in `std.net`
 - a tiny real-window stress-test path through the experimental Linux-only `std.x11`
@@ -89,7 +95,9 @@ Implemented today:
 - LLVM IR text emission
 - object emission and binary linking
 - deep equality across checked aggregate types
-- result `.value` guard diagnostics
+- result `.value` proof diagnostics
+- stronger result narrowing after checks like `if r.ok == false { return err; }`
+- raw backtick strings for multiline text without escape processing
 - parser recovery for continued syntax diagnostics after one error
 
 Current integer rule:
@@ -111,7 +119,7 @@ Current integer rule:
 
 Current runtime boundary:
 
-- owned runtime strings are currently produced by `input()`, `std.io.read_line(...)`, `str_copy(...)`, `str_concat(...)`, `std.strings.copy(...)`, `std.strings.concat(...)`, `std.term.read_paste(...)`, `std.term.term_name(...)`, `std.fs.read_text(...)`, `std.fs.cwd(...)`, `std.env.get(...)`, `std.path.join(...)`, `std.path.file_name(...)`, `std.path.stem(...)`, `std.path.extension(...)`, `std.path.parent(...)`, `std.net.join_host_port(...)`, `std.net.recv(...)`, the `host` and `data` fields from successful `std.net.udp_recv_from(...)`, `std.process.platform(...)`, and `std.process.arch(...)`
+- owned runtime strings are currently produced by `input()`, `std.io.read_line(...)`, `str_copy(...)`, `str_concat(...)`, `std.strings.copy(...)`, `std.strings.concat(...)`, successful `std.text.build(...)`, `std.term.read_paste(...)`, `std.term.term_name(...)`, `std.fs.read_text(...)`, `std.fs.cwd(...)`, `std.env.get(...)`, `std.path.join(...)`, `std.path.file_name(...)`, `std.path.stem(...)`, `std.path.extension(...)`, `std.path.parent(...)`, `std.net.join_host_port(...)`, `std.net.recv(...)`, the `host` and `data` fields from successful `std.net.udp_recv_from(...)`, `std.process.platform(...)`, and `std.process.arch(...)`
 - `free some_string;` safely releases tracked owned strings from those producers
 - the standard library/runtime surface is still intentionally small
 

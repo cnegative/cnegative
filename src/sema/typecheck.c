@@ -391,6 +391,22 @@ static bool cn_integer_types_match(const cn_type_ref *left, const cn_type_ref *r
     return cn_type_is_integer_like(left) && cn_type_equal(left, right);
 }
 
+static bool cn_type_can_assign_to(const cn_type_ref *expected, const cn_type_ref *actual) {
+    if (expected == NULL || actual == NULL) {
+        return false;
+    }
+
+    if (cn_type_equal(expected, actual)) {
+        return true;
+    }
+
+    if (expected->kind == CN_TYPE_SLICE && actual->kind == CN_TYPE_ARRAY) {
+        return cn_type_equal(expected->inner, actual->inner);
+    }
+
+    return false;
+}
+
 static const cn_type_ref *cn_check_expression_hint(
     cn_sema_ctx *ctx,
     cn_scope *scope,
@@ -432,6 +448,7 @@ static bool cn_validate_type_ref(cn_sema_ctx *ctx, const cn_type_ref *type, size
         return true;
     case CN_TYPE_RESULT:
     case CN_TYPE_PTR:
+    case CN_TYPE_SLICE:
     case CN_TYPE_ARRAY:
         return cn_validate_type_ref(ctx, type->inner, offset);
     case CN_TYPE_NAMED: {
@@ -475,6 +492,7 @@ static bool cn_type_is_exportable(cn_sema_ctx *ctx, const cn_type_ref *type) {
         return true;
     case CN_TYPE_RESULT:
     case CN_TYPE_PTR:
+    case CN_TYPE_SLICE:
     case CN_TYPE_ARRAY:
         return cn_type_is_exportable(ctx, type->inner);
     case CN_TYPE_NAMED: {
@@ -536,6 +554,15 @@ static void cn_emit_top_level_name_conflict(
     );
 }
 
+static bool cn_extract_bool_literal(const cn_expr *expression, bool *out_value) {
+    if (expression->kind != CN_EXPR_BOOL) {
+        return false;
+    }
+
+    *out_value = expression->data.bool_value;
+    return true;
+}
+
 static bool cn_extract_result_ok_guard(const cn_expr *expression, cn_strview *out_name, bool *out_positive) {
     const cn_expr *guard = expression;
     bool is_positive = true;
@@ -543,6 +570,34 @@ static bool cn_extract_result_ok_guard(const cn_expr *expression, cn_strview *ou
     if (guard->kind == CN_EXPR_UNARY && guard->data.unary.op == CN_UNARY_NOT) {
         guard = guard->data.unary.operand;
         is_positive = false;
+    }
+
+    if (guard->kind == CN_EXPR_BINARY &&
+        (guard->data.binary.op == CN_BINARY_EQUAL || guard->data.binary.op == CN_BINARY_NOT_EQUAL)) {
+        bool literal_value = false;
+        if (cn_extract_result_ok_guard(guard->data.binary.left, out_name, &is_positive) &&
+            cn_extract_bool_literal(guard->data.binary.right, &literal_value)) {
+            if (!literal_value) {
+                is_positive = !is_positive;
+            }
+            if (guard->data.binary.op == CN_BINARY_NOT_EQUAL) {
+                is_positive = !is_positive;
+            }
+            *out_positive = is_positive;
+            return true;
+        }
+
+        if (cn_extract_result_ok_guard(guard->data.binary.right, out_name, &is_positive) &&
+            cn_extract_bool_literal(guard->data.binary.left, &literal_value)) {
+            if (!literal_value) {
+                is_positive = !is_positive;
+            }
+            if (guard->data.binary.op == CN_BINARY_NOT_EQUAL) {
+                is_positive = !is_positive;
+            }
+            *out_positive = is_positive;
+            return true;
+        }
     }
 
     if (guard->kind != CN_EXPR_FIELD || !cn_sv_eq_cstr(guard->data.field.field_name, "ok")) {
@@ -602,6 +657,20 @@ static bool cn_check_const_expr(cn_sema_ctx *ctx, const cn_expr *expression) {
     case CN_EXPR_INDEX:
         return cn_check_const_expr(ctx, expression->data.index.base) &&
                cn_check_const_expr(ctx, expression->data.index.index);
+    case CN_EXPR_SLICE_VIEW: {
+        if (!cn_check_const_expr(ctx, expression->data.slice_view.base)) {
+            return false;
+        }
+        if (expression->data.slice_view.start != NULL &&
+            !cn_check_const_expr(ctx, expression->data.slice_view.start)) {
+            return false;
+        }
+        if (expression->data.slice_view.end != NULL &&
+            !cn_check_const_expr(ctx, expression->data.slice_view.end)) {
+            return false;
+        }
+        return true;
+    }
     case CN_EXPR_FIELD:
         if (expression->data.field.base->kind == CN_EXPR_NAME) {
             cn_resolved_const resolved = cn_resolve_source_named_const(
@@ -768,7 +837,7 @@ static const cn_type_ref *cn_check_struct_literal(cn_sema_ctx *ctx, cn_scope *sc
 
         seen[field_index] = true;
         const cn_type_ref *value_type = cn_check_expression_hint(ctx, scope, field_init->value, field->type);
-        if (!cn_type_equal(field->type, value_type)) {
+        if (!cn_type_can_assign_to(field->type, value_type)) {
             cn_emit_type_mismatch(ctx->diagnostics, field_init->offset, "struct field type mismatch", field->type, value_type);
         }
     }
@@ -857,6 +926,15 @@ static const cn_type_ref *cn_check_field_access(cn_sema_ctx *ctx, cn_scope *scop
         return cn_builtin_type(CN_TYPE_UNKNOWN);
     }
 
+    if (base_type->kind == CN_TYPE_SLICE) {
+        if (cn_sv_eq_cstr(expression->data.field.field_name, "length")) {
+            return cn_builtin_type(CN_TYPE_INT);
+        }
+
+        cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3009", expression->offset, "slice values only expose '.length'");
+        return cn_builtin_type(CN_TYPE_UNKNOWN);
+    }
+
     if (base_type->kind != CN_TYPE_NAMED) {
         cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3009", expression->offset, "field access requires a struct value");
         return cn_builtin_type(CN_TYPE_UNKNOWN);
@@ -904,12 +982,59 @@ static const cn_type_ref *cn_check_index(cn_sema_ctx *ctx, cn_scope *scope, cons
         cn_emit_type_mismatch(ctx->diagnostics, expression->data.index.index->offset, "array index must be int", cn_builtin_type(CN_TYPE_INT), index_type);
     }
 
-    if (base_type->kind != CN_TYPE_ARRAY) {
-        cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3010", expression->offset, "indexing requires an array value");
+    if (base_type->kind != CN_TYPE_ARRAY && base_type->kind != CN_TYPE_SLICE) {
+        cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3010", expression->offset, "indexing requires an array or slice value");
         return cn_builtin_type(CN_TYPE_UNKNOWN);
     }
 
     return base_type->inner;
+}
+
+static const cn_type_ref *cn_check_slice_view(cn_sema_ctx *ctx, cn_scope *scope, const cn_expr *expression) {
+    const cn_type_ref *base_type = cn_check_expression_hint(ctx, scope, expression->data.slice_view.base, NULL);
+    const cn_type_ref *start_type = cn_builtin_type(CN_TYPE_INT);
+    const cn_type_ref *end_type = cn_builtin_type(CN_TYPE_INT);
+
+    if (expression->data.slice_view.start != NULL) {
+        start_type = cn_check_expression_hint(ctx, scope, expression->data.slice_view.start, cn_builtin_type(CN_TYPE_INT));
+        if (!cn_type_equal(start_type, cn_builtin_type(CN_TYPE_INT))) {
+            cn_emit_type_mismatch(
+                ctx->diagnostics,
+                expression->data.slice_view.start->offset,
+                "slice start must be int",
+                cn_builtin_type(CN_TYPE_INT),
+                start_type
+            );
+        }
+    }
+
+    if (expression->data.slice_view.end != NULL) {
+        end_type = cn_check_expression_hint(ctx, scope, expression->data.slice_view.end, cn_builtin_type(CN_TYPE_INT));
+        if (!cn_type_equal(end_type, cn_builtin_type(CN_TYPE_INT))) {
+            cn_emit_type_mismatch(
+                ctx->diagnostics,
+                expression->data.slice_view.end->offset,
+                "slice end must be int",
+                cn_builtin_type(CN_TYPE_INT),
+                end_type
+            );
+        }
+    }
+
+    if (base_type->kind != CN_TYPE_ARRAY && base_type->kind != CN_TYPE_SLICE) {
+        cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3010", expression->offset, "slicing requires an array or slice value");
+        return cn_builtin_type(CN_TYPE_UNKNOWN);
+    }
+
+    return cn_make_temp_type(
+        ctx,
+        CN_TYPE_SLICE,
+        cn_sv_from_parts(NULL, 0),
+        cn_sv_from_parts(NULL, 0),
+        (cn_type_ref *)base_type->inner,
+        0,
+        expression->offset
+    );
 }
 
 static void cn_check_call_arguments(
@@ -939,7 +1064,7 @@ static void cn_check_call_arguments(
 
     for (size_t i = 0; i < arg_count; ++i) {
         const cn_type_ref *actual = cn_check_expression_hint(ctx, scope, expression->data.call.arguments.items[i], function->parameters.items[i].type);
-        if (!cn_type_equal(function->parameters.items[i].type, actual)) {
+        if (!cn_type_can_assign_to(function->parameters.items[i].type, actual)) {
             cn_emit_type_mismatch(ctx->diagnostics, expression->data.call.arguments.items[i]->offset, "argument type mismatch", function->parameters.items[i].type, actual);
         }
     }
@@ -1149,6 +1274,12 @@ static const cn_type_ref *cn_check_if_expression(
         return cn_builtin_type(CN_TYPE_UNKNOWN);
     }
 
+    if (expected != NULL &&
+        cn_type_can_assign_to(expected, then_type) &&
+        cn_type_can_assign_to(expected, else_type)) {
+        return expected;
+    }
+
     if (!cn_type_equal(then_type, else_type)) {
         char then_name[64];
         char else_name[64];
@@ -1292,6 +1423,8 @@ static const cn_type_ref *cn_check_expression_hint(cn_sema_ctx *ctx, cn_scope *s
         return cn_check_array_literal(ctx, scope, expression, expected);
     case CN_EXPR_INDEX:
         return cn_check_index(ctx, scope, expression);
+    case CN_EXPR_SLICE_VIEW:
+        return cn_check_slice_view(ctx, scope, expression);
     case CN_EXPR_FIELD:
         return cn_check_field_access(ctx, scope, expression);
     case CN_EXPR_STRUCT_LITERAL:
@@ -1299,7 +1432,7 @@ static const cn_type_ref *cn_check_expression_hint(cn_sema_ctx *ctx, cn_scope *s
     case CN_EXPR_OK: {
         if (expected != NULL && expected->kind == CN_TYPE_RESULT) {
             const cn_type_ref *value_type = cn_check_expression_hint(ctx, scope, expression->data.ok_expr.value, expected->inner);
-            if (!cn_type_equal(expected->inner, value_type)) {
+            if (!cn_type_can_assign_to(expected->inner, value_type)) {
                 cn_emit_type_mismatch(ctx->diagnostics, expression->offset, "ok value type mismatch", expected->inner, value_type);
             }
             return expected;
@@ -1373,6 +1506,8 @@ static bool cn_stmt_guarantees_return(const cn_stmt *statement) {
     case CN_STMT_LET:
     case CN_STMT_ASSIGN:
     case CN_STMT_EXPR:
+    case CN_STMT_DEFER:
+    case CN_STMT_TRY:
     case CN_STMT_WHILE:
     case CN_STMT_FOR:
     case CN_STMT_FREE:
@@ -1461,7 +1596,7 @@ static bool cn_check_statement(cn_sema_ctx *ctx, cn_scope *scope, const cn_stmt 
     case CN_STMT_LET: {
         cn_validate_type_ref(ctx, statement->data.let_stmt.type, statement->offset);
         const cn_type_ref *initializer_type = cn_check_expression_hint(ctx, scope, statement->data.let_stmt.initializer, statement->data.let_stmt.type);
-        if (!cn_type_equal(statement->data.let_stmt.type, initializer_type)) {
+        if (!cn_type_can_assign_to(statement->data.let_stmt.type, initializer_type)) {
             cn_emit_type_mismatch(ctx->diagnostics, statement->offset, "initializer type mismatch", statement->data.let_stmt.type, initializer_type);
         }
         cn_scope_define(
@@ -1492,7 +1627,7 @@ static bool cn_check_statement(cn_sema_ctx *ctx, cn_scope *scope, const cn_stmt 
         }
 
         const cn_type_ref *value_type = cn_check_expression_hint(ctx, scope, statement->data.assign_stmt.value, target_info.type);
-        if (!cn_type_equal(target_info.type, value_type)) {
+        if (!cn_type_can_assign_to(target_info.type, value_type)) {
             cn_emit_type_mismatch(ctx->diagnostics, statement->offset, "assignment type mismatch", target_info.type, value_type);
         }
         return true;
@@ -1507,7 +1642,7 @@ static bool cn_check_statement(cn_sema_ctx *ctx, cn_scope *scope, const cn_stmt 
         }
 
         const cn_type_ref *value_type = cn_check_expression_hint(ctx, scope, statement->data.return_stmt.value, function_type);
-        if (!cn_type_equal(function_type, value_type)) {
+        if (!cn_type_can_assign_to(function_type, value_type)) {
             cn_emit_type_mismatch(ctx->diagnostics, statement->offset, "return type mismatch", function_type, value_type);
         }
         return true;
@@ -1515,6 +1650,43 @@ static bool cn_check_statement(cn_sema_ctx *ctx, cn_scope *scope, const cn_stmt 
     case CN_STMT_EXPR:
         cn_check_expression_hint(ctx, scope, statement->data.expr_stmt.value, NULL);
         return true;
+    case CN_STMT_DEFER:
+        return cn_check_statement(ctx, scope, statement->data.defer_stmt.statement);
+    case CN_STMT_TRY: {
+        const cn_type_ref *initializer_type = cn_check_expression_hint(ctx, scope, statement->data.try_stmt.initializer, NULL);
+        if (ctx->current_function->return_type->kind != CN_TYPE_RESULT) {
+            cn_diag_emit(
+                ctx->diagnostics,
+                CN_DIAG_ERROR,
+                "E3033",
+                statement->offset,
+                "try requires the enclosing function to return result ..."
+            );
+        }
+
+        const cn_type_ref *value_type = cn_builtin_type(CN_TYPE_UNKNOWN);
+        if (initializer_type->kind != CN_TYPE_RESULT) {
+            cn_diag_emit(
+                ctx->diagnostics,
+                CN_DIAG_ERROR,
+                "E3034",
+                statement->offset,
+                "try initializer must have type result ..."
+            );
+        } else {
+            value_type = initializer_type->inner;
+        }
+
+        cn_scope_define(
+            ctx,
+            scope,
+            statement->data.try_stmt.name,
+            value_type,
+            false,
+            statement->offset
+        );
+        return true;
+    }
     case CN_STMT_IF: {
         cn_strview guarded_name = cn_sv_from_parts(NULL, 0);
         bool guard_positive = false;

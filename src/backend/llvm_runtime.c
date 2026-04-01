@@ -3,7 +3,9 @@
 void cn_llvm_emit_runtime_prelude(FILE *stream, bool use_x11) {
     cn_llvm_emit_runtime_decls(stream);
     cn_llvm_emit_runtime_core(stream);
+    cn_llvm_emit_runtime_bytes(stream);
     cn_llvm_emit_runtime_strings(stream);
+    cn_llvm_emit_runtime_text(stream);
     cn_llvm_emit_runtime_parse(stream);
     cn_llvm_emit_runtime_math(stream);
     cn_llvm_emit_runtime_time(stream);

@@ -261,6 +261,7 @@ bool cn_type_equal(const cn_type_ref *left, const cn_type_ref *right) {
     switch (left->kind) {
     case CN_TYPE_RESULT:
     case CN_TYPE_PTR:
+    case CN_TYPE_SLICE:
         return cn_type_equal(left->inner, right->inner);
     case CN_TYPE_ARRAY:
         return left->array_size == right->array_size && cn_type_equal(left->inner, right->inner);
@@ -303,6 +304,12 @@ void cn_type_describe(const cn_type_ref *type, char *buffer, size_t buffer_size)
         char inner[128];
         cn_type_describe(type->inner, inner, sizeof(inner));
         snprintf(buffer, buffer_size, "ptr %s", inner);
+        break;
+    }
+    case CN_TYPE_SLICE: {
+        char inner[128];
+        cn_type_describe(type->inner, inner, sizeof(inner));
+        snprintf(buffer, buffer_size, "slice %s", inner);
         break;
     }
     case CN_TYPE_ARRAY: {
@@ -376,6 +383,11 @@ static void cn_expr_destroy(cn_allocator *allocator, cn_expr *expression) {
         cn_expr_destroy(allocator, expression->data.index.base);
         cn_expr_destroy(allocator, expression->data.index.index);
         break;
+    case CN_EXPR_SLICE_VIEW:
+        cn_expr_destroy(allocator, expression->data.slice_view.base);
+        cn_expr_destroy(allocator, expression->data.slice_view.start);
+        cn_expr_destroy(allocator, expression->data.slice_view.end);
+        break;
     case CN_EXPR_FIELD:
         cn_expr_destroy(allocator, expression->data.field.base);
         break;
@@ -425,6 +437,12 @@ static void cn_stmt_destroy(cn_allocator *allocator, cn_stmt *statement) {
         break;
     case CN_STMT_EXPR:
         cn_expr_destroy(allocator, statement->data.expr_stmt.value);
+        break;
+    case CN_STMT_DEFER:
+        cn_stmt_destroy(allocator, statement->data.defer_stmt.statement);
+        break;
+    case CN_STMT_TRY:
+        cn_expr_destroy(allocator, statement->data.try_stmt.initializer);
         break;
     case CN_STMT_IF:
         cn_expr_destroy(allocator, statement->data.if_stmt.condition);

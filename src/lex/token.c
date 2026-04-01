@@ -39,6 +39,9 @@ const char *cn_token_kind_name(cn_token_kind kind) {
     case CN_TOKEN_ADDR: return "addr";
     case CN_TOKEN_DEREF: return "deref";
     case CN_TOKEN_FREE: return "free";
+    case CN_TOKEN_DEFER: return "defer";
+    case CN_TOKEN_TRY: return "try";
+    case CN_TOKEN_SLICE: return "slice";
     case CN_TOKEN_LPAREN: return "(";
     case CN_TOKEN_RPAREN: return ")";
     case CN_TOKEN_LBRACE: return "{";

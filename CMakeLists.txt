@@ -9,6 +9,7 @@ set(CMAKE_C_EXTENSIONS OFF)
 option(CNEGATIVE_ENABLE_ASM "Enable x86_64 assembly hot paths where supported" ON)
 set(CNEGATIVE_C_SOURCES
     src/backend/llvm_runtime.c
+    src/backend/stdlib/bytes.c
     src/backend/stdlib/core.c
     src/backend/stdlib/env.c
     src/backend/stdlib/fs.c
@@ -19,6 +20,7 @@ set(CNEGATIVE_C_SOURCES
     src/backend/stdlib/path.c
     src/backend/stdlib/process.c
     src/backend/stdlib/strings.c
+    src/backend/stdlib/text.c
     src/backend/stdlib/term.c
     src/backend/stdlib/time.c
     src/backend/stdlib/x11.c

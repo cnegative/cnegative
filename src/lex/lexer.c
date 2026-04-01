@@ -83,6 +83,9 @@ static cn_token_kind cn_keyword_kind(cn_strview text) {
     if (cn_sv_eq_cstr(text, "addr")) return CN_TOKEN_ADDR;
     if (cn_sv_eq_cstr(text, "deref")) return CN_TOKEN_DEREF;
     if (cn_sv_eq_cstr(text, "free")) return CN_TOKEN_FREE;
+    if (cn_sv_eq_cstr(text, "defer")) return CN_TOKEN_DEFER;
+    if (cn_sv_eq_cstr(text, "try")) return CN_TOKEN_TRY;
+    if (cn_sv_eq_cstr(text, "slice")) return CN_TOKEN_SLICE;
     if (cn_sv_eq_cstr(text, "true")) return CN_TOKEN_TRUE;
     if (cn_sv_eq_cstr(text, "false")) return CN_TOKEN_FALSE;
     return CN_TOKEN_IDENTIFIER;
@@ -151,6 +154,30 @@ static void cn_lexer_scan_string(cn_lexer *lexer, cn_token_buffer *tokens, size_
 
     if (cn_lexer_peek(lexer) != '"') {
         cn_diag_emit(lexer->diagnostics, CN_DIAG_ERROR, "E1005", offset, "unterminated string literal");
+        return;
+    }
+
+    size_t content_end = lexer->index;
+    cn_lexer_advance(lexer);
+
+    cn_token token;
+    token.kind = CN_TOKEN_STRING_LITERAL;
+    token.offset = offset;
+    token.line = line;
+    token.column = column;
+    token.lexeme = cn_sv_from_parts(lexer->source->text + content_start, content_end - content_start);
+    cn_token_buffer_push(tokens, token);
+}
+
+static void cn_lexer_scan_raw_string(cn_lexer *lexer, cn_token_buffer *tokens, size_t offset, size_t line, size_t column) {
+    size_t content_start = lexer->index;
+
+    while (cn_lexer_peek(lexer) != '\0' && cn_lexer_peek(lexer) != '`') {
+        cn_lexer_advance(lexer);
+    }
+
+    if (cn_lexer_peek(lexer) != '`') {
+        cn_diag_emit(lexer->diagnostics, CN_DIAG_ERROR, "E1005", offset, "unterminated raw string literal");
         return;
     }
 
@@ -296,6 +323,9 @@ bool cn_lexer_run(cn_lexer *lexer, cn_token_buffer *tokens) {
             break;
         case '"':
             cn_lexer_scan_string(lexer, tokens, offset, line, column);
+            break;
+        case '`':
+            cn_lexer_scan_raw_string(lexer, tokens, offset, line, column);
             break;
         default:
             if (cn_is_ascii_digit(value)) {

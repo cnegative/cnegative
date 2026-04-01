@@ -6,10 +6,11 @@
 
 - Independent IR node types separate from the parser AST.
 - Builtin primitive types currently include `int`, `u8`, `bool`, `str`, and `void`.
+- Composite types currently include arrays, `ptr T`, `result T`, and `slice T`.
 - Module-level constant declarations lowered into canonical IR form.
 - Canonical module-qualified function and struct names in lowered output.
 - Canonical module-qualified public constants in lowered output.
-- Builtin stdlib calls preserved as canonical module-qualified builtin targets such as `std.math.gcd(...)`, `std.strings.concat(...)`, `std.io.write_line(...)`, `std.time.now_ms(...)`, `std.env.get(...)`, `std.path.extension(...)`, `std.fs.file_size(...)`, `std.net.tcp_connect(...)`, `std.net.udp_recv_from(...)`, and `std.process.platform(...)`.
+- Builtin stdlib calls preserved as canonical module-qualified builtin targets such as `std.math.gcd(...)`, `std.bytes.append(...)`, `std.strings.concat(...)`, `std.text.build(...)`, `std.io.write_line(...)`, `std.time.now_ms(...)`, `std.env.get(...)`, `std.path.extension(...)`, `std.fs.file_size(...)`, `std.net.tcp_connect(...)`, `std.net.udp_recv_from(...)`, and `std.process.platform(...)`.
 - Explicit return statements preserved from source.
 - Structured control flow preserved for `if`, `while`, `loop`, and range `for`.
 - Simple optimization passes run before later backend stages.
@@ -61,6 +62,7 @@ let remainder:int = sample % 6;
 let bounded:int = std.math.clamp(99, 0, 7);
 let factor:int = std.math.gcd(54, 24);
 let platform:str = std.process.platform();
+let view:slice int = slice data;
 ```
 
 Current optimization pass behavior:

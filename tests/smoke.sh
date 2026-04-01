@@ -67,7 +67,12 @@ cn_verify_llvm_ir() {
 ./build/cnegc check examples/valid_stdlib_term_more.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_stdlib_term_render.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_u8.cneg >"$tmp_valid"
+./build/cnegc check examples/valid_slice.cneg >"$tmp_valid"
+./build/cnegc check examples/valid_stdlib_bytes_text.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_if_expr.cneg >"$tmp_valid"
+./build/cnegc check examples/valid_defer.cneg >"$tmp_valid"
+./build/cnegc check examples/valid_try.cneg >"$tmp_valid"
+./build/cnegc check examples/valid_raw_strings.cneg >"$tmp_valid"
 
 ./build/cnegc bench-lexer examples/valid_basic.cneg 5 >"$tmp_valid"
 if ! grep -q 'tokens_per_second:' "$tmp_valid"; then
@@ -389,6 +394,50 @@ if ! grep -q 'packet.payload\[1\] == 1' "$tmp_ir"; then
     exit 1
 fi
 
+./build/cnegc ir examples/valid_slice.cneg >"$tmp_ir"
+if ! grep -q 'fn valid_slice.sum_head(xs:slice int) -> int' "$tmp_ir"; then
+    printf 'expected slice parameter lowering in typed IR for valid_slice.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'let view:slice int = slice data;' "$tmp_ir"; then
+    printf 'expected array-to-slice coercion in typed IR for valid_slice.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'let middle:slice int = view\[1..3\];' "$tmp_ir"; then
+    printf 'expected explicit subslice lowering in typed IR for valid_slice.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'let prefix:slice int = data\[0..2\];' "$tmp_ir"; then
+    printf 'expected omitted-start slice lowering in typed IR for valid_slice.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'third(data\[1..4\])' "$tmp_ir"; then
+    printf 'expected omitted-end slice lowering in typed IR for valid_slice.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+
+./build/cnegc ir examples/valid_stdlib_bytes_text.cneg >"$tmp_ir"
+if ! grep -q 'std.bytes.append' "$tmp_ir"; then
+    printf 'expected std.bytes.append builtin lowering in typed IR for valid_stdlib_bytes_text.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'let view:slice u8 = std.bytes.view(buffer);' "$tmp_ir"; then
+    printf 'expected std.bytes slice view lowering in typed IR for valid_stdlib_bytes_text.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.text.build' "$tmp_ir"; then
+    printf 'expected std.text.build builtin lowering in typed IR for valid_stdlib_bytes_text.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+
 ./build/cnegc ir examples/valid_if_expr.cneg >"$tmp_ir"
 if ! grep -q 'let picked:int = if flag {' "$tmp_ir"; then
     printf 'expected if-expression binding in typed IR for valid_if_expr.cneg\n'
@@ -397,6 +446,30 @@ if ! grep -q 'let picked:int = if flag {' "$tmp_ir"; then
 fi
 if ! grep -q 'return if (value == 0) {' "$tmp_ir"; then
     printf 'expected nested if-expression return in typed IR for valid_if_expr.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+
+./build/cnegc ir examples/valid_defer.cneg >"$tmp_ir"
+if ! grep -q 'print("cleanup");' "$tmp_ir"; then
+    printf 'expected defer lowering to emit cleanup in typed IR for valid_defer.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'if (value < 0) {' "$tmp_ir"; then
+    printf 'expected early-return branch in typed IR for valid_defer.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+
+./build/cnegc ir examples/valid_try.cneg >"$tmp_ir"
+if ! grep -q 'let __cn_try_' "$tmp_ir"; then
+    printf 'expected try lowering to create a temporary result binding in typed IR for valid_try.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'if !__cn_try_' "$tmp_ir"; then
+    printf 'expected try lowering to branch on .ok in typed IR for valid_try.cneg\n'
     cat "$tmp_ir"
     exit 1
 fi
@@ -804,6 +877,37 @@ if ! grep -q 'zext i8' "$tmp_ll"; then
 fi
 cn_verify_llvm_ir "$tmp_ll" "$tmp_bc"
 
+./build/cnegc llvm-ir examples/valid_slice.cneg >"$tmp_ll"
+if ! grep -q '{ ptr, i64 }' "$tmp_ll"; then
+    printf 'expected slice aggregate lowering in LLVM IR for valid_slice.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q 'extractvalue { ptr, i64 }' "$tmp_ll"; then
+    printf 'expected slice field extraction in LLVM IR for valid_slice.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q 'sub i64' "$tmp_ll"; then
+    printf 'expected slice length subtraction in LLVM IR for valid_slice.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+cn_verify_llvm_ir "$tmp_ll" "$tmp_bc"
+
+./build/cnegc llvm-ir examples/valid_stdlib_bytes_text.cneg >"$tmp_ll"
+if ! grep -q '@cn_bytes_append' "$tmp_ll"; then
+    printf 'expected std.bytes append runtime lowering in LLVM IR for valid_stdlib_bytes_text.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_text_build' "$tmp_ll"; then
+    printf 'expected std.text build runtime lowering in LLVM IR for valid_stdlib_bytes_text.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+cn_verify_llvm_ir "$tmp_ll" "$tmp_bc"
+
 ./build/cnegc llvm-ir examples/valid_if_expr.cneg >"$tmp_ll"
 if ! grep -q 'br i1' "$tmp_ll"; then
     printf 'expected branch lowering in LLVM IR for valid_if_expr.cneg\n'
@@ -1016,6 +1120,21 @@ if ! grep -q 'u8 literal out of range' "$tmp_invalid"; then
 fi
 if ! grep -q 'E3028' "$tmp_invalid"; then
     printf 'expected E3028 in invalid_u8_range.cneg output\n'
+    cat "$tmp_invalid"
+    exit 1
+fi
+
+if ./build/cnegc check examples/invalid_try_non_result.cneg >"$tmp_invalid" 2>&1; then
+    printf 'expected invalid_try_non_result.cneg to fail\n'
+    exit 1
+fi
+if ! grep -q 'E3033' "$tmp_invalid"; then
+    printf 'expected E3033 in invalid_try_non_result.cneg output\n'
+    cat "$tmp_invalid"
+    exit 1
+fi
+if ! grep -q 'E3034' "$tmp_invalid"; then
+    printf 'expected E3034 in invalid_try_non_result.cneg output\n'
     cat "$tmp_invalid"
     exit 1
 fi
@@ -1290,6 +1409,33 @@ if ! grep -q '^1$' "$tmp_run"; then
     exit 1
 fi
 
+./build/cnegc build examples/valid_slice.cneg "$tmp_bin" >"$tmp_valid"
+set +e
+"$tmp_bin" >"$tmp_run"
+status=$?
+set -e
+if [ "$status" -ne 23 ]; then
+    printf 'expected valid_slice binary to exit 23, got %d\n' "$status"
+    cat "$tmp_run"
+    exit 1
+fi
+
+./build/cnegc build examples/valid_stdlib_bytes_text.cneg "$tmp_bin" >"$tmp_valid"
+set +e
+"$tmp_bin" >"$tmp_run"
+status=$?
+set -e
+if [ "$status" -ne 25 ]; then
+    printf 'expected valid_stdlib_bytes_text binary to exit 25, got %d\n' "$status"
+    cat "$tmp_run"
+    exit 1
+fi
+if ! grep -q 'slice ready!' "$tmp_run"; then
+    printf 'expected valid_stdlib_bytes_text binary to print built text output\n'
+    cat "$tmp_run"
+    exit 1
+fi
+
 ./build/cnegc build examples/valid_if_expr.cneg "$tmp_bin" >"$tmp_valid"
 set +e
 "$tmp_bin" >"$tmp_run"
@@ -1297,6 +1443,44 @@ status=$?
 set -e
 if [ "$status" -ne 1 ]; then
     printf 'expected valid_if_expr binary to exit 1, got %d\n' "$status"
+    cat "$tmp_run"
+    exit 1
+fi
+
+./build/cnegc build examples/valid_defer.cneg "$tmp_bin" >"$tmp_valid"
+set +e
+"$tmp_bin" >"$tmp_run"
+status=$?
+set -e
+if [ "$status" -ne 0 ]; then
+    printf 'expected valid_defer binary to exit 0, got %d\n' "$status"
+    cat "$tmp_run"
+    exit 1
+fi
+if ! grep -q '^cleanup$' "$tmp_run"; then
+    printf 'expected valid_defer binary to print deferred cleanup output\n'
+    cat "$tmp_run"
+    exit 1
+fi
+
+./build/cnegc build examples/valid_try.cneg "$tmp_bin" >"$tmp_valid"
+set +e
+"$tmp_bin" >"$tmp_run"
+status=$?
+set -e
+if [ "$status" -ne 5 ]; then
+    printf 'expected valid_try binary to exit 5, got %d\n' "$status"
+    cat "$tmp_run"
+    exit 1
+fi
+
+./build/cnegc build examples/valid_raw_strings.cneg "$tmp_bin" >"$tmp_valid"
+set +e
+"$tmp_bin" >"$tmp_run"
+status=$?
+set -e
+if [ "$status" -ne 15 ]; then
+    printf 'expected valid_raw_strings binary to exit 15, got %d\n' "$status"
     cat "$tmp_run"
     exit 1
 fi

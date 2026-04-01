@@ -176,7 +176,9 @@ static const cn_ir_struct *cn_llvm_find_struct(const cn_ir_program *program, cn_
 }
 
 static bool cn_llvm_is_runtime_owned_struct(cn_strview module_name, cn_strview struct_name) {
-    return (cn_sv_eq_cstr(module_name, "std.net") && cn_sv_eq_cstr(struct_name, "UdpPacket")) ||
+    return (cn_sv_eq_cstr(module_name, "std.bytes") && cn_sv_eq_cstr(struct_name, "Buffer")) ||
+           (cn_sv_eq_cstr(module_name, "std.net") && cn_sv_eq_cstr(struct_name, "UdpPacket")) ||
+           (cn_sv_eq_cstr(module_name, "std.text") && cn_sv_eq_cstr(struct_name, "Builder")) ||
            (cn_sv_eq_cstr(module_name, "std.term") && cn_sv_eq_cstr(struct_name, "Clip")) ||
            (cn_sv_eq_cstr(module_name, "std.term") && cn_sv_eq_cstr(struct_name, "Cell")) ||
            (cn_sv_eq_cstr(module_name, "std.term") && cn_sv_eq_cstr(struct_name, "Buffer")) ||
@@ -229,6 +231,7 @@ static bool cn_llvm_validate_type(cn_llvm_emit_ctx *ctx, const cn_ir_type *type,
         return true;
     case CN_IR_TYPE_RESULT:
     case CN_IR_TYPE_PTR:
+    case CN_IR_TYPE_SLICE:
     case CN_IR_TYPE_ARRAY:
         if (cn_llvm_type_is_void_like(type->inner)) {
             cn_llvm_emit_unsupported_type(ctx->diagnostics, offset, type);
@@ -258,6 +261,7 @@ static bool cn_llvm_type_supports_equality(cn_llvm_emit_ctx *ctx, const cn_ir_ty
     case CN_IR_TYPE_STR:
         return true;
     case CN_IR_TYPE_RESULT:
+    case CN_IR_TYPE_SLICE:
     case CN_IR_TYPE_ARRAY:
         return type->inner != NULL && cn_llvm_type_supports_equality(ctx, type->inner);
     case CN_IR_TYPE_NAMED: {
@@ -345,6 +349,7 @@ static bool cn_llvm_validate_call(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expre
         }
 
         if (cn_llvm_call_matches(expression, "std.io", "read_line") ||
+            cn_llvm_call_matches(expression, "std.bytes", "new") ||
             cn_llvm_call_matches(expression, "std.term", "is_tty") ||
             cn_llvm_call_matches(expression, "std.term", "columns") ||
             cn_llvm_call_matches(expression, "std.term", "rows") ||
@@ -377,6 +382,7 @@ static bool cn_llvm_validate_call(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expre
             cn_llvm_call_matches(expression, "std.term", "leave_raw_mode") ||
             cn_llvm_call_matches(expression, "std.process", "platform") ||
             cn_llvm_call_matches(expression, "std.process", "arch") ||
+            cn_llvm_call_matches(expression, "std.text", "new") ||
             cn_llvm_call_matches(expression, "std.time", "now_ms") ||
             cn_llvm_call_matches(expression, "std.fs", "cwd")) {
             return cn_llvm_validate_builtin_arguments(ctx, expression, 0, "unexpected builtin zero-argument stdlib arity");
@@ -398,6 +404,12 @@ static bool cn_llvm_validate_call(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expre
             cn_llvm_call_matches(expression, "std.math", "cube") ||
             cn_llvm_call_matches(expression, "std.math", "is_even") ||
             cn_llvm_call_matches(expression, "std.math", "is_odd") ||
+            cn_llvm_call_matches(expression, "std.bytes", "with_capacity") ||
+            cn_llvm_call_matches(expression, "std.bytes", "release") ||
+            cn_llvm_call_matches(expression, "std.bytes", "clear") ||
+            cn_llvm_call_matches(expression, "std.bytes", "length") ||
+            cn_llvm_call_matches(expression, "std.bytes", "capacity") ||
+            cn_llvm_call_matches(expression, "std.bytes", "view") ||
             cn_llvm_call_matches(expression, "std.x11", "pump") ||
             cn_llvm_call_matches(expression, "std.x11", "close") ||
             cn_llvm_call_matches(expression, "std.strings", "len") ||
@@ -424,6 +436,13 @@ static bool cn_llvm_validate_call(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expre
             cn_llvm_call_matches(expression, "std.term", "buffer_free") ||
             cn_llvm_call_matches(expression, "std.process", "exit") ||
             cn_llvm_call_matches(expression, "std.time", "sleep_ms") ||
+            cn_llvm_call_matches(expression, "std.text", "with_capacity") ||
+            cn_llvm_call_matches(expression, "std.text", "release") ||
+            cn_llvm_call_matches(expression, "std.text", "clear") ||
+            cn_llvm_call_matches(expression, "std.text", "length") ||
+            cn_llvm_call_matches(expression, "std.text", "capacity") ||
+            cn_llvm_call_matches(expression, "std.text", "build") ||
+            cn_llvm_call_matches(expression, "std.text", "view") ||
             cn_llvm_call_matches(expression, "std.path", "stem") ||
             cn_llvm_call_matches(expression, "std.path", "extension") ||
             cn_llvm_call_matches(expression, "std.path", "is_absolute") ||
@@ -437,6 +456,9 @@ static bool cn_llvm_validate_call(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expre
             cn_llvm_call_matches(expression, "std.math", "gcd") ||
             cn_llvm_call_matches(expression, "std.math", "lcm") ||
             cn_llvm_call_matches(expression, "std.math", "distance") ||
+            cn_llvm_call_matches(expression, "std.bytes", "push") ||
+            cn_llvm_call_matches(expression, "std.bytes", "append") ||
+            cn_llvm_call_matches(expression, "std.bytes", "get") ||
             cn_llvm_call_matches(expression, "std.strings", "eq") ||
             cn_llvm_call_matches(expression, "std.strings", "starts_with") ||
             cn_llvm_call_matches(expression, "std.strings", "ends_with") ||
@@ -444,6 +466,8 @@ static bool cn_llvm_validate_call(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expre
             cn_llvm_call_matches(expression, "std.net", "tcp_listen") ||
             cn_llvm_call_matches(expression, "std.net", "udp_bind") ||
             cn_llvm_call_matches(expression, "std.net", "udp_recv_from") ||
+            cn_llvm_call_matches(expression, "std.term", "decode_codepoint") ||
+            cn_llvm_call_matches(expression, "std.term", "next_codepoint_offset") ||
             cn_llvm_call_matches(expression, "std.term", "buffer_new") ||
             cn_llvm_call_matches(expression, "std.term", "buffer_clear") ||
             cn_llvm_call_matches(expression, "std.term", "render_diff") ||
@@ -455,12 +479,15 @@ static bool cn_llvm_validate_call(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expre
             cn_llvm_call_matches(expression, "std.net", "join_host_port") ||
             cn_llvm_call_matches(expression, "std.net", "send") ||
             cn_llvm_call_matches(expression, "std.net", "recv") ||
+            cn_llvm_call_matches(expression, "std.text", "append") ||
+            cn_llvm_call_matches(expression, "std.text", "push_byte") ||
             cn_llvm_call_matches(expression, "std.path", "join")) {
             return cn_llvm_validate_builtin_arguments(ctx, expression, 2, "unexpected builtin stdlib arity");
         }
 
         if (cn_llvm_call_matches(expression, "std.math", "clamp") ||
             cn_llvm_call_matches(expression, "std.math", "between") ||
+            cn_llvm_call_matches(expression, "std.bytes", "set") ||
             cn_llvm_call_matches(expression, "std.term", "set_style") ||
             cn_llvm_call_matches(expression, "std.term", "rgb") ||
             cn_llvm_call_matches(expression, "std.term", "buffer_get") ||
@@ -545,9 +572,17 @@ static bool cn_llvm_validate_expression(cn_llvm_emit_ctx *ctx, const cn_ir_expr 
             }
         }
         return true;
+    case CN_IR_EXPR_SLICE_FROM_ARRAY:
+        return cn_llvm_validate_expression(ctx, expression->data.slice_from_array.base);
     case CN_IR_EXPR_INDEX:
         return cn_llvm_validate_expression(ctx, expression->data.index.base) &&
                cn_llvm_validate_expression(ctx, expression->data.index.index);
+    case CN_IR_EXPR_SLICE_VIEW:
+        return cn_llvm_validate_expression(ctx, expression->data.slice_view.base) &&
+               (expression->data.slice_view.start == NULL ||
+                cn_llvm_validate_expression(ctx, expression->data.slice_view.start)) &&
+               (expression->data.slice_view.end == NULL ||
+                cn_llvm_validate_expression(ctx, expression->data.slice_view.end));
     case CN_IR_EXPR_FIELD:
         return cn_llvm_validate_expression(ctx, expression->data.field.base);
     case CN_IR_EXPR_STRUCT_LITERAL:
@@ -775,6 +810,9 @@ static void cn_llvm_emit_type(FILE *stream, const cn_ir_type *type) {
     case CN_IR_TYPE_PTR:
         fputs("ptr", stream);
         break;
+    case CN_IR_TYPE_SLICE:
+        fputs("{ ptr, i64 }", stream);
+        break;
     case CN_IR_TYPE_VOID:
         fputs("void", stream);
         break;
@@ -934,6 +972,25 @@ static int cn_llvm_emit_array_element_gep(
     return reg_id;
 }
 
+static int cn_llvm_emit_pointer_element_gep(
+    cn_llvm_function_ctx *ctx,
+    const cn_ir_type *element_type,
+    cn_llvm_value base_pointer,
+    cn_llvm_value index
+) {
+    int reg_id = cn_llvm_next_temp(ctx);
+    cn_llvm_emit_indent(ctx->emit->stream);
+    cn_llvm_emit_reg(ctx->emit->stream, reg_id);
+    fputs(" = getelementptr inbounds ", ctx->emit->stream);
+    cn_llvm_emit_type(ctx->emit->stream, element_type);
+    fputs(", ptr ", ctx->emit->stream);
+    cn_llvm_emit_value_ref(ctx->emit->stream, base_pointer);
+    fputs(", i64 ", ctx->emit->stream);
+    cn_llvm_emit_value_ref(ctx->emit->stream, index);
+    fputc('\n', ctx->emit->stream);
+    return reg_id;
+}
+
 static int cn_llvm_emit_insertvalue(
     cn_llvm_function_ctx *ctx,
     const cn_ir_type *aggregate_type,
@@ -1004,6 +1061,22 @@ static cn_llvm_value cn_llvm_emit_bool_not(cn_llvm_function_ctx *ctx, cn_llvm_va
     return cn_llvm_register_value(&g_llvm_bool_type, reg_id);
 }
 
+static cn_llvm_value cn_llvm_emit_int_sub(cn_llvm_function_ctx *ctx, cn_llvm_value left, cn_llvm_value right) {
+    if (left.is_constant && right.is_constant) {
+        return cn_llvm_constant_int(&g_llvm_int_type, left.data.int_value - right.data.int_value);
+    }
+
+    int reg_id = cn_llvm_next_temp(ctx);
+    cn_llvm_emit_indent(ctx->emit->stream);
+    cn_llvm_emit_reg(ctx->emit->stream, reg_id);
+    fputs(" = sub i64 ", ctx->emit->stream);
+    cn_llvm_emit_value_ref(ctx->emit->stream, left);
+    fputs(", ", ctx->emit->stream);
+    cn_llvm_emit_value_ref(ctx->emit->stream, right);
+    fputc('\n', ctx->emit->stream);
+    return cn_llvm_register_value(&g_llvm_int_type, reg_id);
+}
+
 static cn_llvm_value cn_llvm_emit_value_equality(
     cn_llvm_function_ctx *ctx,
     cn_llvm_value left,
@@ -1064,6 +1137,27 @@ static cn_llvm_value cn_llvm_emit_value_equality(
             return cn_llvm_invalid_value(&g_llvm_bool_type);
         }
         return cn_llvm_emit_bool_and(ctx, ok_eq, value_eq);
+    }
+    case CN_IR_TYPE_SLICE: {
+        cn_ir_type ptr_type = {CN_IR_TYPE_PTR, {NULL, 0}, {NULL, 0}, (cn_ir_type *)type->inner, 0};
+        cn_llvm_value ptr_eq = cn_llvm_emit_value_equality(
+            ctx,
+            cn_llvm_emit_extractvalue(ctx, left, &ptr_type, 0),
+            cn_llvm_emit_extractvalue(ctx, right, &ptr_type, 0),
+            &ptr_type,
+            offset
+        );
+        cn_llvm_value len_eq = cn_llvm_emit_value_equality(
+            ctx,
+            cn_llvm_emit_extractvalue(ctx, left, &g_llvm_int_type, 1),
+            cn_llvm_emit_extractvalue(ctx, right, &g_llvm_int_type, 1),
+            &g_llvm_int_type,
+            offset
+        );
+        if (!ptr_eq.is_valid || !len_eq.is_valid) {
+            return cn_llvm_invalid_value(&g_llvm_bool_type);
+        }
+        return cn_llvm_emit_bool_and(ctx, ptr_eq, len_eq);
     }
     case CN_IR_TYPE_ARRAY: {
         cn_llvm_value result = cn_llvm_constant_bool(&g_llvm_bool_type, true);
@@ -1162,6 +1256,16 @@ static const cn_ir_type *cn_llvm_resolve_field_type(
                 *out_index = 1;
             }
             return base_type->inner;
+        }
+        return NULL;
+    }
+
+    if (base_type->kind == CN_IR_TYPE_SLICE) {
+        if (cn_sv_eq_cstr(field_name, "length")) {
+            if (out_index != NULL) {
+                *out_index = 1;
+            }
+            return &g_llvm_int_type;
         }
         return NULL;
     }
@@ -1282,9 +1386,33 @@ static cn_llvm_address cn_llvm_lower_address(
         return cn_llvm_register_address(expression->type, target.data.reg_id);
     }
     case CN_IR_EXPR_INDEX: {
-        cn_llvm_address base_address = cn_llvm_materialize_address(ctx, scope, expression->data.index.base);
         cn_llvm_value index_value = cn_llvm_lower_expression(ctx, scope, expression->data.index.index);
-        if (!base_address.is_valid || !index_value.is_valid) {
+        if (!index_value.is_valid) {
+            return cn_llvm_invalid_address(expression->type);
+        }
+
+        if (expression->data.index.base->type->kind == CN_IR_TYPE_SLICE) {
+            cn_llvm_value slice_value = cn_llvm_lower_expression(ctx, scope, expression->data.index.base);
+            if (!slice_value.is_valid) {
+                return cn_llvm_invalid_address(expression->type);
+            }
+
+            cn_ir_type ptr_type = {
+                CN_IR_TYPE_PTR,
+                {NULL, 0},
+                {NULL, 0},
+                (cn_ir_type *)expression->data.index.base->type->inner,
+                0
+            };
+            cn_llvm_value data_ptr = cn_llvm_emit_extractvalue(ctx, slice_value, &ptr_type, 0);
+            return cn_llvm_register_address(
+                expression->type,
+                cn_llvm_emit_pointer_element_gep(ctx, expression->type, data_ptr, index_value)
+            );
+        }
+
+        cn_llvm_address base_address = cn_llvm_materialize_address(ctx, scope, expression->data.index.base);
+        if (!base_address.is_valid) {
             return cn_llvm_invalid_address(expression->type);
         }
 
@@ -1478,6 +1606,90 @@ static cn_llvm_value cn_llvm_lower_array_literal(cn_llvm_function_ctx *ctx, cn_l
     return cn_llvm_register_value(expression->type, aggregate_reg_id);
 }
 
+static cn_llvm_value cn_llvm_lower_slice_from_array(cn_llvm_function_ctx *ctx, cn_llvm_scope *scope, const cn_ir_expr *expression) {
+    cn_llvm_address base_address = cn_llvm_materialize_address(ctx, scope, expression->data.slice_from_array.base);
+    if (!base_address.is_valid) {
+        return cn_llvm_invalid_value(expression->type);
+    }
+
+    cn_llvm_value zero = cn_llvm_constant_int(&g_llvm_int_type, 0);
+    int data_reg_id = cn_llvm_emit_array_element_gep(ctx, expression->data.slice_from_array.base->type, base_address.pointer_reg_id, zero);
+    cn_ir_type ptr_type = {
+        CN_IR_TYPE_PTR,
+        {NULL, 0},
+        {NULL, 0},
+        (cn_ir_type *)expression->type->inner,
+        0
+    };
+    cn_llvm_value data_ptr = cn_llvm_register_value(&ptr_type, data_reg_id);
+    cn_llvm_value length = cn_llvm_constant_int(&g_llvm_int_type, (int64_t)expression->data.slice_from_array.base->type->array_size);
+
+    int ptr_reg = cn_llvm_emit_insertvalue(ctx, expression->type, true, 0, data_ptr, 0);
+    int len_reg = cn_llvm_emit_insertvalue(ctx, expression->type, false, ptr_reg, length, 1);
+    return cn_llvm_register_value(expression->type, len_reg);
+}
+
+static cn_llvm_value cn_llvm_lower_slice_view(cn_llvm_function_ctx *ctx, cn_llvm_scope *scope, const cn_ir_expr *expression) {
+    cn_llvm_value start = expression->data.slice_view.start != NULL
+        ? cn_llvm_lower_expression(ctx, scope, expression->data.slice_view.start)
+        : cn_llvm_constant_int(&g_llvm_int_type, 0);
+    if (!start.is_valid) {
+        return cn_llvm_invalid_value(expression->type);
+    }
+
+    cn_ir_type ptr_type = {
+        CN_IR_TYPE_PTR,
+        {NULL, 0},
+        {NULL, 0},
+        (cn_ir_type *)expression->type->inner,
+        0
+    };
+
+    cn_llvm_value data_ptr;
+    cn_llvm_value end;
+
+    if (expression->data.slice_view.base->type->kind == CN_IR_TYPE_ARRAY) {
+        cn_llvm_address base_address = cn_llvm_materialize_address(ctx, scope, expression->data.slice_view.base);
+        if (!base_address.is_valid) {
+            return cn_llvm_invalid_value(expression->type);
+        }
+
+        int data_reg_id = cn_llvm_emit_array_element_gep(
+            ctx,
+            expression->data.slice_view.base->type,
+            base_address.pointer_reg_id,
+            start
+        );
+        data_ptr = cn_llvm_register_value(&ptr_type, data_reg_id);
+        end = expression->data.slice_view.end != NULL
+            ? cn_llvm_lower_expression(ctx, scope, expression->data.slice_view.end)
+            : cn_llvm_constant_int(&g_llvm_int_type, (int64_t)expression->data.slice_view.base->type->array_size);
+    } else {
+        cn_llvm_value base_slice = cn_llvm_lower_expression(ctx, scope, expression->data.slice_view.base);
+        if (!base_slice.is_valid) {
+            return cn_llvm_invalid_value(expression->type);
+        }
+
+        cn_llvm_value base_ptr = cn_llvm_emit_extractvalue(ctx, base_slice, &ptr_type, 0);
+        data_ptr = cn_llvm_register_value(
+            &ptr_type,
+            cn_llvm_emit_pointer_element_gep(ctx, expression->type->inner, base_ptr, start)
+        );
+        end = expression->data.slice_view.end != NULL
+            ? cn_llvm_lower_expression(ctx, scope, expression->data.slice_view.end)
+            : cn_llvm_emit_extractvalue(ctx, base_slice, &g_llvm_int_type, 1);
+    }
+
+    if (!data_ptr.is_valid || !end.is_valid) {
+        return cn_llvm_invalid_value(expression->type);
+    }
+
+    cn_llvm_value length = cn_llvm_emit_int_sub(ctx, end, start);
+    int ptr_reg = cn_llvm_emit_insertvalue(ctx, expression->type, true, 0, data_ptr, 0);
+    int len_reg = cn_llvm_emit_insertvalue(ctx, expression->type, false, ptr_reg, length, 1);
+    return cn_llvm_register_value(expression->type, len_reg);
+}
+
 static cn_llvm_value cn_llvm_lower_struct_literal(cn_llvm_function_ctx *ctx, cn_llvm_scope *scope, const cn_ir_expr *expression) {
     int aggregate_reg_id = -1;
     bool have_value = false;
@@ -1626,6 +1838,10 @@ static cn_llvm_value cn_llvm_lower_builtin_call(cn_llvm_function_ctx *ctx, cn_ll
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_input", arguments, 0);
     }
 
+    if (cn_llvm_call_matches(expression, "std.bytes", "new")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_bytes_new", arguments, 0);
+    }
+
     if (cn_llvm_call_matches(expression, "std.term", "is_tty")) {
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_is_tty", arguments, 0);
     }
@@ -1686,6 +1902,14 @@ static cn_llvm_value cn_llvm_lower_builtin_call(cn_llvm_function_ctx *ctx, cn_ll
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_string_width", arguments, 1);
     }
 
+    if (cn_llvm_call_matches(expression, "std.term", "decode_codepoint")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_decode_codepoint", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.term", "next_codepoint_offset")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_next_codepoint_offset", arguments, 2);
+    }
+
     if (cn_llvm_call_matches(expression, "std.term", "reset_style")) {
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_reset_style", arguments, 0);
     }
@@ -1712,6 +1936,10 @@ static cn_llvm_value cn_llvm_lower_builtin_call(cn_llvm_function_ctx *ctx, cn_ll
 
     if (cn_llvm_call_matches(expression, "std.process", "arch")) {
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_process_arch", arguments, 0);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.text", "new")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_text_new", arguments, 0);
     }
 
     if (cn_llvm_call_matches(expression, "std.time", "now_ms")) {
@@ -1754,6 +1982,30 @@ static cn_llvm_value cn_llvm_lower_builtin_call(cn_llvm_function_ctx *ctx, cn_ll
 
     if (cn_llvm_call_matches(expression, "std.math", "is_odd")) {
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_math_is_odd", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.bytes", "with_capacity")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_bytes_with_capacity", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.bytes", "release")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_bytes_free", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.bytes", "clear")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_bytes_clear", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.bytes", "length")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_bytes_length", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.bytes", "capacity")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_bytes_capacity", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.bytes", "view")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_bytes_slice", arguments, 1);
     }
 
     if (cn_llvm_call_matches(expression, "std.strings", "len")) {
@@ -2008,8 +2260,48 @@ static cn_llvm_value cn_llvm_lower_builtin_call(cn_llvm_function_ctx *ctx, cn_ll
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_time_sleep_ms", arguments, 1);
     }
 
+    if (cn_llvm_call_matches(expression, "std.text", "with_capacity")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_text_with_capacity", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.text", "release")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_text_free", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.text", "clear")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_text_clear", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.text", "length")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_text_length", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.text", "capacity")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_text_capacity", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.text", "build")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_text_build", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.text", "view")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_text_slice", arguments, 1);
+    }
+
     if (cn_llvm_call_matches(expression, "std.path", "join")) {
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_path_join", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.bytes", "push")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_bytes_push", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.bytes", "append")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_bytes_append", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.bytes", "get")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_bytes_get", arguments, 2);
     }
 
     if (cn_llvm_call_matches(expression, "std.net", "join_host_port")) {
@@ -2034,6 +2326,18 @@ static cn_llvm_value cn_llvm_lower_builtin_call(cn_llvm_function_ctx *ctx, cn_ll
 
     if (cn_llvm_call_matches(expression, "std.net", "recv")) {
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_net_recv", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.text", "append")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_text_append", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.text", "push_byte")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_text_push_byte", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.bytes", "set")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_bytes_set", arguments, 3);
     }
 
     if (cn_llvm_call_matches(expression, "std.net", "udp_recv_from")) {
@@ -2295,6 +2599,10 @@ static cn_llvm_value cn_llvm_lower_expression(cn_llvm_function_ctx *ctx, cn_llvm
         return cn_llvm_lower_call(ctx, scope, expression);
     case CN_IR_EXPR_ARRAY_LITERAL:
         return cn_llvm_lower_array_literal(ctx, scope, expression);
+    case CN_IR_EXPR_SLICE_FROM_ARRAY:
+        return cn_llvm_lower_slice_from_array(ctx, scope, expression);
+    case CN_IR_EXPR_SLICE_VIEW:
+        return cn_llvm_lower_slice_view(ctx, scope, expression);
     case CN_IR_EXPR_INDEX: {
         cn_llvm_address address = cn_llvm_lower_address(ctx, scope, expression, false);
         if (!address.is_valid) {
@@ -2674,9 +2982,17 @@ static bool cn_llvm_collect_strings_from_expression(cn_llvm_emit_ctx *ctx, const
             }
         }
         return true;
+    case CN_IR_EXPR_SLICE_FROM_ARRAY:
+        return cn_llvm_collect_strings_from_expression(ctx, expression->data.slice_from_array.base);
     case CN_IR_EXPR_INDEX:
         return cn_llvm_collect_strings_from_expression(ctx, expression->data.index.base) &&
                cn_llvm_collect_strings_from_expression(ctx, expression->data.index.index);
+    case CN_IR_EXPR_SLICE_VIEW:
+        return cn_llvm_collect_strings_from_expression(ctx, expression->data.slice_view.base) &&
+               (expression->data.slice_view.start == NULL ||
+                cn_llvm_collect_strings_from_expression(ctx, expression->data.slice_view.start)) &&
+               (expression->data.slice_view.end == NULL ||
+                cn_llvm_collect_strings_from_expression(ctx, expression->data.slice_view.end));
     case CN_IR_EXPR_FIELD:
         return cn_llvm_collect_strings_from_expression(ctx, expression->data.field.base);
     case CN_IR_EXPR_STRUCT_LITERAL:
@@ -2876,9 +3192,17 @@ static bool cn_llvm_expr_uses_builtin_module(const cn_ir_expr *expression, const
             }
         }
         return false;
+    case CN_IR_EXPR_SLICE_FROM_ARRAY:
+        return cn_llvm_expr_uses_builtin_module(expression->data.slice_from_array.base, module_name);
     case CN_IR_EXPR_INDEX:
         return cn_llvm_expr_uses_builtin_module(expression->data.index.base, module_name) ||
                cn_llvm_expr_uses_builtin_module(expression->data.index.index, module_name);
+    case CN_IR_EXPR_SLICE_VIEW:
+        return cn_llvm_expr_uses_builtin_module(expression->data.slice_view.base, module_name) ||
+               (expression->data.slice_view.start != NULL &&
+                cn_llvm_expr_uses_builtin_module(expression->data.slice_view.start, module_name)) ||
+               (expression->data.slice_view.end != NULL &&
+                cn_llvm_expr_uses_builtin_module(expression->data.slice_view.end, module_name));
     case CN_IR_EXPR_FIELD:
         return cn_llvm_expr_uses_builtin_module(expression->data.field.base, module_name);
     case CN_IR_EXPR_STRUCT_LITERAL:

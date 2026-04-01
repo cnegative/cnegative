@@ -15,6 +15,7 @@ typedef enum cn_ir_type_kind {
     CN_IR_TYPE_VOID,
     CN_IR_TYPE_RESULT,
     CN_IR_TYPE_PTR,
+    CN_IR_TYPE_SLICE,
     CN_IR_TYPE_ARRAY,
     CN_IR_TYPE_NAMED,
     CN_IR_TYPE_UNKNOWN
@@ -65,7 +66,9 @@ typedef enum cn_ir_expr_kind {
     CN_IR_EXPR_IF,
     CN_IR_EXPR_CALL,
     CN_IR_EXPR_ARRAY_LITERAL,
+    CN_IR_EXPR_SLICE_FROM_ARRAY,
     CN_IR_EXPR_INDEX,
+    CN_IR_EXPR_SLICE_VIEW,
     CN_IR_EXPR_FIELD,
     CN_IR_EXPR_STRUCT_LITERAL,
     CN_IR_EXPR_OK,
@@ -134,8 +137,16 @@ struct cn_ir_expr {
         } array_literal;
         struct {
             cn_ir_expr *base;
+        } slice_from_array;
+        struct {
+            cn_ir_expr *base;
             cn_ir_expr *index;
         } index;
+        struct {
+            cn_ir_expr *base;
+            cn_ir_expr *start;
+            cn_ir_expr *end;
+        } slice_view;
         struct {
             cn_ir_expr *base;
             cn_strview field_name;
@@ -276,6 +287,9 @@ struct cn_ir_function {
     cn_ir_type *return_type;
     cn_ir_param_list parameters;
     cn_ir_block *body;
+    char **owned_names;
+    size_t owned_name_count;
+    size_t owned_name_capacity;
     size_t offset;
 };
 
