@@ -133,6 +133,39 @@ static void cn_parser_sync_top_level(cn_parser *parser) {
     }
 }
 
+static cn_strview cn_parser_string_literal_value(cn_parser *parser, const cn_token *token) {
+    if (token->lexeme.data == NULL || token->lexeme.data[-1] != '`') {
+        return token->lexeme;
+    }
+
+    bool needs_normalize = false;
+    for (size_t i = 0; i < token->lexeme.length; ++i) {
+        if (token->lexeme.data[i] == '\r') {
+            needs_normalize = true;
+            break;
+        }
+    }
+    if (!needs_normalize) {
+        return token->lexeme;
+    }
+
+    char *normalized = CN_CALLOC(parser->allocator, char, token->lexeme.length + 1);
+    size_t out = 0;
+    for (size_t i = 0; i < token->lexeme.length; ++i) {
+        if (token->lexeme.data[i] == '\r') {
+            normalized[out++] = '\n';
+            if (i + 1 < token->lexeme.length && token->lexeme.data[i + 1] == '\n') {
+                i += 1;
+            }
+            continue;
+        }
+
+        normalized[out++] = token->lexeme.data[i];
+    }
+
+    return cn_sv_from_parts(normalized, out);
+}
+
 static cn_type_ref *cn_parse_type(cn_parser *parser);
 static cn_block *cn_parse_block(cn_parser *parser);
 static cn_stmt *cn_parse_statement(cn_parser *parser);
@@ -410,7 +443,7 @@ static cn_expr *cn_parse_primary(cn_parser *parser) {
 
     if (cn_parser_match(parser, CN_TOKEN_STRING_LITERAL)) {
         cn_expr *expression = cn_expr_create(parser->allocator, CN_EXPR_STRING, token->offset);
-        expression->data.string_value = token->lexeme;
+        expression->data.string_value = cn_parser_string_literal_value(parser, token);
         return expression;
     }
 
