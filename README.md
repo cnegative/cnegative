@@ -1,3 +1,4 @@
+# Development may progress slowly as I am currently focused on my exams.
 # cnegative
 
 `cnegative` is a minimal, hackable systems language for learning explicit low-level programming.
