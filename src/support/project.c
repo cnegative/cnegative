@@ -162,6 +162,7 @@ static void cn_builtin_source_init(cn_allocator *allocator, cn_source *source, c
 static bool cn_is_builtin_stdlib_module_name(cn_strview module_name) {
     return cn_sv_eq_cstr(module_name, "std.math") ||
            cn_sv_eq_cstr(module_name, "std.bytes") ||
+           cn_sv_eq_cstr(module_name, "std.lines") ||
            cn_sv_eq_cstr(module_name, "std.strings") ||
            cn_sv_eq_cstr(module_name, "std.text") ||
            cn_sv_eq_cstr(module_name, "std.parse") ||
@@ -367,6 +368,125 @@ static cn_program *cn_builtin_stdlib_program(cn_allocator *allocator, const char
             cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.bytes", "Buffer"))
         );
         cn_program_push_function(program, slice);
+        return program;
+    }
+
+    if (strcmp(module_name, "std.lines") == 0) {
+        cn_struct_decl *buffer = cn_builtin_struct_create(allocator, "Buffer");
+        cn_builtin_push_struct_field(allocator, buffer, "data", cn_builtin_ptr_type(allocator, cn_builtin_primitive_type(allocator, CN_TYPE_STR)));
+        cn_builtin_push_struct_field(allocator, buffer, "length", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_struct_field(allocator, buffer, "capacity", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_struct(program, buffer);
+
+        cn_function *new_buffer = cn_builtin_function_create(
+            allocator,
+            "new",
+            cn_builtin_result_wrapped_type(
+                allocator,
+                cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.lines", "Buffer"))
+            )
+        );
+        cn_program_push_function(program, new_buffer);
+
+        cn_function *with_capacity = cn_builtin_function_create(
+            allocator,
+            "with_capacity",
+            cn_builtin_result_wrapped_type(
+                allocator,
+                cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.lines", "Buffer"))
+            )
+        );
+        cn_builtin_push_param(allocator, with_capacity, "capacity", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, with_capacity);
+
+        cn_function *release = cn_builtin_function_create(allocator, "release", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(
+            allocator,
+            release,
+            "buffer",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.lines", "Buffer"))
+        );
+        cn_program_push_function(program, release);
+
+        cn_function *clear = cn_builtin_function_create(allocator, "clear", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(
+            allocator,
+            clear,
+            "buffer",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.lines", "Buffer"))
+        );
+        cn_program_push_function(program, clear);
+
+        cn_function *length = cn_builtin_function_create(allocator, "length", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(
+            allocator,
+            length,
+            "buffer",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.lines", "Buffer"))
+        );
+        cn_program_push_function(program, length);
+
+        cn_function *capacity = cn_builtin_function_create(allocator, "capacity", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(
+            allocator,
+            capacity,
+            "buffer",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.lines", "Buffer"))
+        );
+        cn_program_push_function(program, capacity);
+
+        cn_function *get = cn_builtin_function_create(allocator, "get", cn_builtin_result_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(
+            allocator,
+            get,
+            "buffer",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.lines", "Buffer"))
+        );
+        cn_builtin_push_param(allocator, get, "index", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, get);
+
+        cn_function *set = cn_builtin_function_create(allocator, "set", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(
+            allocator,
+            set,
+            "buffer",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.lines", "Buffer"))
+        );
+        cn_builtin_push_param(allocator, set, "index", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, set, "value", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, set);
+
+        cn_function *push = cn_builtin_function_create(allocator, "push", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(
+            allocator,
+            push,
+            "buffer",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.lines", "Buffer"))
+        );
+        cn_builtin_push_param(allocator, push, "value", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, push);
+
+        cn_function *insert = cn_builtin_function_create(allocator, "insert", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(
+            allocator,
+            insert,
+            "buffer",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.lines", "Buffer"))
+        );
+        cn_builtin_push_param(allocator, insert, "index", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(allocator, insert, "value", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, insert);
+
+        cn_function *remove = cn_builtin_function_create(allocator, "remove", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(
+            allocator,
+            remove,
+            "buffer",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.lines", "Buffer"))
+        );
+        cn_builtin_push_param(allocator, remove, "index", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, remove);
+
         return program;
     }
 

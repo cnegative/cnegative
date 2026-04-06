@@ -11,6 +11,7 @@ void cn_llvm_emit_runtime_decls(FILE *stream) {
     fputs("declare ptr @strstr(ptr, ptr)\n", stream);
     fputs("declare i32 @memcmp(ptr, ptr, i64)\n", stream);
     fputs("declare ptr @memcpy(ptr, ptr, i64)\n", stream);
+    fputs("declare ptr @memmove(ptr, ptr, i64)\n", stream);
     fputs("declare ptr @malloc(i64)\n", stream);
     fputs("declare ptr @realloc(ptr, i64)\n", stream);
     fputs("declare i32 @snprintf(ptr, i64, ptr, ...)\n", stream);

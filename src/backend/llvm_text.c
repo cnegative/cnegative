@@ -177,6 +177,7 @@ static const cn_ir_struct *cn_llvm_find_struct(const cn_ir_program *program, cn_
 
 static bool cn_llvm_is_runtime_owned_struct(cn_strview module_name, cn_strview struct_name) {
     return (cn_sv_eq_cstr(module_name, "std.bytes") && cn_sv_eq_cstr(struct_name, "Buffer")) ||
+           (cn_sv_eq_cstr(module_name, "std.lines") && cn_sv_eq_cstr(struct_name, "Buffer")) ||
            (cn_sv_eq_cstr(module_name, "std.net") && cn_sv_eq_cstr(struct_name, "UdpPacket")) ||
            (cn_sv_eq_cstr(module_name, "std.text") && cn_sv_eq_cstr(struct_name, "Builder")) ||
            (cn_sv_eq_cstr(module_name, "std.term") && cn_sv_eq_cstr(struct_name, "Clip")) ||
@@ -350,6 +351,7 @@ static bool cn_llvm_validate_call(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expre
 
         if (cn_llvm_call_matches(expression, "std.io", "read_line") ||
             cn_llvm_call_matches(expression, "std.bytes", "new") ||
+            cn_llvm_call_matches(expression, "std.lines", "new") ||
             cn_llvm_call_matches(expression, "std.term", "is_tty") ||
             cn_llvm_call_matches(expression, "std.term", "columns") ||
             cn_llvm_call_matches(expression, "std.term", "rows") ||
@@ -410,6 +412,11 @@ static bool cn_llvm_validate_call(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expre
             cn_llvm_call_matches(expression, "std.bytes", "length") ||
             cn_llvm_call_matches(expression, "std.bytes", "capacity") ||
             cn_llvm_call_matches(expression, "std.bytes", "view") ||
+            cn_llvm_call_matches(expression, "std.lines", "with_capacity") ||
+            cn_llvm_call_matches(expression, "std.lines", "release") ||
+            cn_llvm_call_matches(expression, "std.lines", "clear") ||
+            cn_llvm_call_matches(expression, "std.lines", "length") ||
+            cn_llvm_call_matches(expression, "std.lines", "capacity") ||
             cn_llvm_call_matches(expression, "std.x11", "pump") ||
             cn_llvm_call_matches(expression, "std.x11", "close") ||
             cn_llvm_call_matches(expression, "std.strings", "len") ||
@@ -459,6 +466,9 @@ static bool cn_llvm_validate_call(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expre
             cn_llvm_call_matches(expression, "std.bytes", "push") ||
             cn_llvm_call_matches(expression, "std.bytes", "append") ||
             cn_llvm_call_matches(expression, "std.bytes", "get") ||
+            cn_llvm_call_matches(expression, "std.lines", "get") ||
+            cn_llvm_call_matches(expression, "std.lines", "push") ||
+            cn_llvm_call_matches(expression, "std.lines", "remove") ||
             cn_llvm_call_matches(expression, "std.strings", "eq") ||
             cn_llvm_call_matches(expression, "std.strings", "starts_with") ||
             cn_llvm_call_matches(expression, "std.strings", "ends_with") ||
@@ -488,6 +498,8 @@ static bool cn_llvm_validate_call(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expre
         if (cn_llvm_call_matches(expression, "std.math", "clamp") ||
             cn_llvm_call_matches(expression, "std.math", "between") ||
             cn_llvm_call_matches(expression, "std.bytes", "set") ||
+            cn_llvm_call_matches(expression, "std.lines", "set") ||
+            cn_llvm_call_matches(expression, "std.lines", "insert") ||
             cn_llvm_call_matches(expression, "std.term", "set_style") ||
             cn_llvm_call_matches(expression, "std.term", "rgb") ||
             cn_llvm_call_matches(expression, "std.term", "buffer_get") ||
@@ -1842,6 +1854,10 @@ static cn_llvm_value cn_llvm_lower_builtin_call(cn_llvm_function_ctx *ctx, cn_ll
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_bytes_new", arguments, 0);
     }
 
+    if (cn_llvm_call_matches(expression, "std.lines", "new")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_lines_new", arguments, 0);
+    }
+
     if (cn_llvm_call_matches(expression, "std.term", "is_tty")) {
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_is_tty", arguments, 0);
     }
@@ -2006,6 +2022,26 @@ static cn_llvm_value cn_llvm_lower_builtin_call(cn_llvm_function_ctx *ctx, cn_ll
 
     if (cn_llvm_call_matches(expression, "std.bytes", "view")) {
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_bytes_slice", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.lines", "with_capacity")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_lines_with_capacity", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.lines", "release")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_lines_free", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.lines", "clear")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_lines_clear", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.lines", "length")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_lines_length", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.lines", "capacity")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_lines_capacity", arguments, 1);
     }
 
     if (cn_llvm_call_matches(expression, "std.strings", "len")) {
@@ -2304,6 +2340,18 @@ static cn_llvm_value cn_llvm_lower_builtin_call(cn_llvm_function_ctx *ctx, cn_ll
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_bytes_get", arguments, 2);
     }
 
+    if (cn_llvm_call_matches(expression, "std.lines", "get")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_lines_get", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.lines", "push")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_lines_push", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.lines", "remove")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_lines_remove", arguments, 2);
+    }
+
     if (cn_llvm_call_matches(expression, "std.net", "join_host_port")) {
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_net_join_host_port", arguments, 2);
     }
@@ -2338,6 +2386,14 @@ static cn_llvm_value cn_llvm_lower_builtin_call(cn_llvm_function_ctx *ctx, cn_ll
 
     if (cn_llvm_call_matches(expression, "std.bytes", "set")) {
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_bytes_set", arguments, 3);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.lines", "set")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_lines_set", arguments, 3);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.lines", "insert")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_lines_insert", arguments, 3);
     }
 
     if (cn_llvm_call_matches(expression, "std.net", "udp_recv_from")) {

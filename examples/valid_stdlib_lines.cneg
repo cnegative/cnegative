@@ -1,0 +1,72 @@
+import std.io as io;
+import std.lines as lines;
+import std.strings as strings;
+
+fn:result int run() {
+    try scratch = lines.new();
+    if lines.release(scratch).ok == false {
+        return err;
+    }
+
+    try buffer = lines.with_capacity(2);
+
+    if lines.push(buffer, "alpha").ok == false {
+        lines.release(buffer);
+        return err;
+    }
+    if lines.push(buffer, "gamma").ok == false {
+        lines.release(buffer);
+        return err;
+    }
+    if lines.insert(buffer, 1, "beta").ok == false {
+        lines.release(buffer);
+        return err;
+    }
+
+    try picked = lines.get(buffer, 1);
+    io.write_line(picked);
+
+    if lines.set(buffer, 2, "delta").ok == false {
+        lines.release(buffer);
+        return err;
+    }
+    if lines.remove(buffer, 0).ok == false {
+        lines.release(buffer);
+        return err;
+    }
+
+    let mut score:int = lines.length(buffer);
+    if score == 2 {
+        score = score + 20;
+    }
+    if strings.eq(picked, "beta") {
+        score = score + 3;
+    }
+    if lines.capacity(buffer) >= 2 {
+        score = score + 2;
+    }
+
+    try last = lines.get(buffer, 1);
+    if strings.eq(last, "delta") {
+        score = score + 4;
+    }
+
+    if lines.clear(buffer).ok == false {
+        lines.release(buffer);
+        return err;
+    }
+    if lines.length(buffer) == 0 {
+        score = score + 1;
+    }
+
+    lines.release(buffer);
+    return ok score;
+}
+
+fn:int main() {
+    let outcome:result int = run();
+    if outcome.ok == false {
+        return 1;
+    }
+    return outcome.value;
+}

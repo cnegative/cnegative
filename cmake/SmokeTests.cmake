@@ -140,6 +140,7 @@ cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_stdlib_
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_u8.cneg)
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_slice.cneg)
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_stdlib_bytes_text.cneg)
+cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_stdlib_lines.cneg)
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_if_expr.cneg)
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_defer.cneg)
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_try.cneg)
@@ -247,6 +248,11 @@ cn_run_expect_success("${TMP_IR}" "${CNEGC_BIN}" ir examples/valid_stdlib_bytes_
 cn_assert_contains("${TMP_IR}" "std.bytes.append")
 cn_assert_contains("${TMP_IR}" "let view:slice u8 = std.bytes.view(buffer);")
 cn_assert_contains("${TMP_IR}" "std.text.build")
+
+cn_run_expect_success("${TMP_IR}" "${CNEGC_BIN}" ir examples/valid_stdlib_lines.cneg)
+cn_assert_contains("${TMP_IR}" "std.lines.insert")
+cn_assert_contains("${TMP_IR}" "std.lines.get")
+cn_assert_contains("${TMP_IR}" "result ptr std.lines.Buffer")
 
 cn_run_expect_success("${TMP_IR}" "${CNEGC_BIN}" ir examples/valid_if_expr.cneg)
 cn_assert_contains("${TMP_IR}" "let picked:int = if flag {")
@@ -400,6 +406,11 @@ cn_verify_llvm_ir("${TMP_LL}" "${TMP_BC}")
 cn_run_expect_success("${TMP_LL}" "${CNEGC_BIN}" llvm-ir examples/valid_stdlib_bytes_text.cneg)
 cn_assert_contains("${TMP_LL}" "@cn_bytes_append")
 cn_assert_contains("${TMP_LL}" "@cn_text_build")
+cn_verify_llvm_ir("${TMP_LL}" "${TMP_BC}")
+
+cn_run_expect_success("${TMP_LL}" "${CNEGC_BIN}" llvm-ir examples/valid_stdlib_lines.cneg)
+cn_assert_contains("${TMP_LL}" "@cn_lines_insert")
+cn_assert_contains("${TMP_LL}" "@cn_lines_get")
 cn_verify_llvm_ir("${TMP_LL}" "${TMP_BC}")
 
 cn_run_expect_success("${TMP_LL}" "${CNEGC_BIN}" llvm-ir examples/valid_if_expr.cneg)
@@ -578,6 +589,10 @@ cn_run_binary("${TMP_RUN}" 23 "" "${TMP_BIN}")
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" build examples/valid_stdlib_bytes_text.cneg "${TMP_BIN}")
 cn_run_binary("${TMP_RUN}" 25 "" "${TMP_BIN}")
 cn_assert_contains("${TMP_RUN}" "slice ready!")
+
+cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" build examples/valid_stdlib_lines.cneg "${TMP_BIN}")
+cn_run_binary("${TMP_RUN}" 32 "" "${TMP_BIN}")
+cn_assert_contains("${TMP_RUN}" "beta")
 
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" build examples/valid_if_expr.cneg "${TMP_BIN}")
 cn_run_binary("${TMP_RUN}" 1 "" "${TMP_BIN}")

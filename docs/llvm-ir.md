@@ -21,7 +21,7 @@ build/cnegc build examples/valid_basic.cneg
 - Struct literals, array literals, field access, indexing, `alloc`, `addr`, `deref`, `free`, `ok`, `err`, `.ok`, and guarded `.value`.
 - Module-level constants lowered after typed IR folding and canonicalization.
 - `print(...)`, `input()`, `str_copy(...)`, `str_concat(...)`, and string equality lowered through embedded LLVM runtime helpers backed by libc.
-- `std.math`, `std.bytes`, `std.strings`, `std.text`, `std.parse`, `std.fs`, `std.io`, `std.term`, `std.time`, `std.env`, `std.path`, `std.net`, `std.process`, and the experimental Linux-only `std.x11` lowered through embedded LLVM runtime helpers backed by libc or the host platform APIs.
+- `std.math`, `std.bytes`, `std.lines`, `std.strings`, `std.text`, `std.parse`, `std.fs`, `std.io`, `std.term`, `std.time`, `std.env`, `std.path`, `std.net`, `std.process`, and the experimental Linux-only `std.x11` lowered through embedded LLVM runtime helpers backed by libc or the host platform APIs.
 - Object emission and binary linking through `clang-18` or `clang`.
 - The emitted module target triple is selected from the host build target instead of being hardcoded to Linux.
 
@@ -31,6 +31,7 @@ build/cnegc build examples/valid_basic.cneg
 - `str_copy(...)` duplicates an existing string into owned heap storage through the generated runtime helper.
 - `str_concat(...)` allocates and returns a new owned concatenated string through the generated runtime helper.
 - `std.bytes` lowers to growable byte-buffer helpers with runtime allocation, resize-on-append growth, indexed byte reads/writes, and non-owning slice views of current contents.
+- `std.lines` lowers to growable line-buffer helpers that own duplicated line strings internally. `get(...)` returns a borrowed `str` view into that storage, while `set(...)`, `push(...)`, `insert(...)`, and `remove(...)` lower to embedded line-management helpers.
 - `std.strings.copy(...)` and `std.strings.concat(...)` lower to the same owned-string helpers as the global forms.
 - `std.text` lowers to builder helpers layered on top of the byte-buffer runtime. `std.text.append(...)` copies string bytes into the builder, `std.text.push_byte(...)` appends one byte, `std.text.view(...)` returns a non-owning slice, and `std.text.build(...)` returns an owned runtime string on success.
 - `std.parse.to_int(...)` and `std.parse.to_bool(...)` lower to runtime parsing helpers that return `result`.
@@ -54,7 +55,7 @@ build/cnegc build examples/valid_basic.cneg
 
 - Builtin stdlib validation and lowering currently live in `src/backend/llvm_text.c`.
 - Embedded runtime helper emission is split by domain under `src/backend/stdlib/`.
-- The new dynamic-storage helpers currently live in `src/backend/stdlib/bytes.c` and `src/backend/stdlib/text.c`.
+- The new dynamic-storage helpers currently live in `src/backend/stdlib/bytes.c`, `src/backend/stdlib/lines.c`, and `src/backend/stdlib/text.c`.
 - The experimental Linux-only X11 runtime helpers currently live in `src/backend/stdlib/x11.c`.
 
 Unsupported lowering reports `E3021` before any LLVM IR text is printed.

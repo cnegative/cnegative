@@ -5,7 +5,7 @@
 
 It is being shaped as a good place to start before jumping into C, C++, or lower-level systems programming directly. The goal is to keep the language explicit and low-level, while making the surface easier to read, reason about, and modify.
 
-Current project status: `v0.4.0`
+Current project status: `v0.4.1`
 
 This repository currently ships the `cnegc` compiler with:
 
@@ -83,8 +83,9 @@ Implemented today:
 - `slice T` views with `.length`, indexing, subslicing, and array-to-slice coercion
 - field access and indexing
 - module imports and module-qualified public calls
-- initial stdlib modules: `std.math`, `std.bytes`, `std.strings`, `std.text`, `std.parse`, `std.fs`, `std.io`, `std.term`, `std.time`, `std.env`, `std.path`, `std.net`, `std.process`, and the experimental Linux-only `std.x11`
+- initial stdlib modules: `std.math`, `std.bytes`, `std.lines`, `std.strings`, `std.text`, `std.parse`, `std.fs`, `std.io`, `std.term`, `std.time`, `std.env`, `std.path`, `std.net`, `std.process`, and the experimental Linux-only `std.x11`
 - `std.bytes.Buffer` as a growable byte container with append, get/set, and slice-view helpers
+- `std.lines.Buffer` as a growable owned line container with borrowed reads and insert/remove helpers
 - `std.text.Builder` as a growable text builder that can accumulate strings and return a final owned `str`
 - a low-level terminal foundation through `std.term`, including capability queries, raw and timed byte/event reads, key/mouse/resize/paste events, cursor/scroll control, style/color control including RGB helpers, width helpers, buffer resize, and clipped diff rendering
 - beginner-first blocking IPv4 TCP and UDP helpers in `std.net`

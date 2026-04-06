@@ -69,6 +69,7 @@ cn_verify_llvm_ir() {
 ./build/cnegc check examples/valid_u8.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_slice.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_stdlib_bytes_text.cneg >"$tmp_valid"
+./build/cnegc check examples/valid_stdlib_lines.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_if_expr.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_defer.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_try.cneg >"$tmp_valid"
@@ -434,6 +435,23 @@ if ! grep -q 'let view:slice u8 = std.bytes.view(buffer);' "$tmp_ir"; then
 fi
 if ! grep -q 'std.text.build' "$tmp_ir"; then
     printf 'expected std.text.build builtin lowering in typed IR for valid_stdlib_bytes_text.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+
+./build/cnegc ir examples/valid_stdlib_lines.cneg >"$tmp_ir"
+if ! grep -q 'std.lines.insert' "$tmp_ir"; then
+    printf 'expected std.lines.insert builtin lowering in typed IR for valid_stdlib_lines.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.lines.get' "$tmp_ir"; then
+    printf 'expected std.lines.get builtin lowering in typed IR for valid_stdlib_lines.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'result ptr std.lines.Buffer' "$tmp_ir"; then
+    printf 'expected std.lines buffer result type in typed IR for valid_stdlib_lines.cneg\n'
     cat "$tmp_ir"
     exit 1
 fi
@@ -903,6 +921,19 @@ if ! grep -q '@cn_bytes_append' "$tmp_ll"; then
 fi
 if ! grep -q '@cn_text_build' "$tmp_ll"; then
     printf 'expected std.text build runtime lowering in LLVM IR for valid_stdlib_bytes_text.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+cn_verify_llvm_ir "$tmp_ll" "$tmp_bc"
+
+./build/cnegc llvm-ir examples/valid_stdlib_lines.cneg >"$tmp_ll"
+if ! grep -q '@cn_lines_insert' "$tmp_ll"; then
+    printf 'expected std.lines insert runtime lowering in LLVM IR for valid_stdlib_lines.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_lines_get' "$tmp_ll"; then
+    printf 'expected std.lines get runtime lowering in LLVM IR for valid_stdlib_lines.cneg\n'
     cat "$tmp_ll"
     exit 1
 fi
@@ -1432,6 +1463,22 @@ if [ "$status" -ne 25 ]; then
 fi
 if ! grep -q 'slice ready!' "$tmp_run"; then
     printf 'expected valid_stdlib_bytes_text binary to print built text output\n'
+    cat "$tmp_run"
+    exit 1
+fi
+
+./build/cnegc build examples/valid_stdlib_lines.cneg "$tmp_bin" >"$tmp_valid"
+set +e
+"$tmp_bin" >"$tmp_run"
+status=$?
+set -e
+if [ "$status" -ne 32 ]; then
+    printf 'expected valid_stdlib_lines binary to exit 32, got %d\n' "$status"
+    cat "$tmp_run"
+    exit 1
+fi
+if ! grep -q '^beta$' "$tmp_run"; then
+    printf 'expected valid_stdlib_lines binary to print borrowed line output\n'
     cat "$tmp_run"
     exit 1
 fi

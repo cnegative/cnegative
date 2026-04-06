@@ -162,6 +162,7 @@ The initial standard library is imported through builtin modules using the same 
 ```lang
 import std.math as math;
 import std.bytes as bytes;
+import std.lines as lines;
 import std.strings as strings;
 import std.text as text;
 import std.parse as parse;
@@ -199,6 +200,18 @@ Current builtin stdlib surface:
 - `std.bytes.get(ptr std.bytes.Buffer, int) -> result u8`
 - `std.bytes.set(ptr std.bytes.Buffer, int, u8) -> result bool`
 - `std.bytes.view(ptr std.bytes.Buffer) -> slice u8`
+- `std.lines.Buffer { data:ptr str; length:int; capacity:int }`
+- `std.lines.new() -> result ptr std.lines.Buffer`
+- `std.lines.with_capacity(int) -> result ptr std.lines.Buffer`
+- `std.lines.release(ptr std.lines.Buffer) -> result bool`
+- `std.lines.clear(ptr std.lines.Buffer) -> result bool`
+- `std.lines.length(ptr std.lines.Buffer) -> int`
+- `std.lines.capacity(ptr std.lines.Buffer) -> int`
+- `std.lines.get(ptr std.lines.Buffer, int) -> result str`
+- `std.lines.set(ptr std.lines.Buffer, int, str) -> result bool`
+- `std.lines.push(ptr std.lines.Buffer, str) -> result bool`
+- `std.lines.insert(ptr std.lines.Buffer, int, str) -> result bool`
+- `std.lines.remove(ptr std.lines.Buffer, int) -> result bool`
 - `std.strings.len(str) -> int`
 - `std.strings.copy(str) -> str`
 - `std.strings.concat(str, str) -> str`
@@ -515,6 +528,7 @@ Current runtime notes:
 - `std.io.read_line()` lowers to the same owned heap-backed runtime helper as `input()`.
 - `std.term` is the first low-level terminal/TUI slice. `write(...)`, `flush()`, `clear()`, line erase helpers, `move_cursor(...)`, save/restore cursor, cursor visibility, alternate-screen toggles, scroll-region helpers, `is_tty()`, terminal size queries, terminal capability queries, raw-mode enter/leave, raw and timed byte/event reads, style/color helpers, width helpers, buffer resize, and screen-buffer diff rendering all lower to embedded terminal helpers. Coordinates in `move_cursor(row, column)` and `set_scroll_region(top, bottom)` are zero-based at the language level and become one-based VT cursor positions in the runtime.
 - `std.bytes` is the first dynamic byte-storage slice built on top of core `slice T`. `Buffer` is a growable heap-owned byte container. `new()`, `with_capacity(...)`, `release(...)`, `clear(...)`, `length(...)`, `capacity(...)`, `push(...)`, `append(...)`, `get(...)`, `set(...)`, and `view(...)` lower to embedded runtime helpers. `view(...)` returns a non-owning `slice u8` over the current buffer contents.
+- `std.lines` is the first line-oriented dynamic-storage slice for editor-style code. `Buffer` owns copies of inserted lines, `get(...)` returns a borrowed `str` view into that storage, and `set(...)`, `push(...)`, `insert(...)`, and `remove(...)` lower to embedded runtime helpers for line duplication and shifting.
 - `std.text` is the first dynamic text-building slice built on top of `std.bytes`. `Builder` uses the same growable storage shape, but `append(...)` accepts `str`, `push_byte(...)` appends one byte, `view(...)` returns a `slice u8`, and `build(...)` returns a freshly owned `str` on success.
 - `std.term.term_name()` returns an owned runtime string when the terminal name can be discovered.
 - `std.term.supports_truecolor()`, `std.term.supports_256color()`, `std.term.supports_unicode()`, and `std.term.supports_mouse()` lower to terminal-capability helpers built on environment/TTY checks.

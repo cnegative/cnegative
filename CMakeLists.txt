@@ -14,6 +14,7 @@ set(CNEGATIVE_C_SOURCES
     src/backend/stdlib/env.c
     src/backend/stdlib/fs.c
     src/backend/stdlib/io.c
+    src/backend/stdlib/lines.c
     src/backend/stdlib/math.c
     src/backend/stdlib/net.c
     src/backend/stdlib/parse.c
