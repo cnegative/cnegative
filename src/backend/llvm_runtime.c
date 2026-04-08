@@ -1,9 +1,12 @@
 #include "cnegative/llvm_runtime.h"
 
-void cn_llvm_emit_runtime_prelude(FILE *stream, bool use_x11) {
+void cn_llvm_emit_runtime_prelude(FILE *stream, bool use_x11, bool use_ipc) {
     cn_llvm_emit_runtime_decls(stream);
     cn_llvm_emit_runtime_core(stream);
     cn_llvm_emit_runtime_bytes(stream);
+    if (use_ipc) {
+        cn_llvm_emit_runtime_ipc(stream);
+    }
     cn_llvm_emit_runtime_lines(stream);
     cn_llvm_emit_runtime_strings(stream);
     cn_llvm_emit_runtime_text(stream);

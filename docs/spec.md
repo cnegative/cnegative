@@ -162,6 +162,7 @@ The initial standard library is imported through builtin modules using the same 
 ```lang
 import std.math as math;
 import std.bytes as bytes;
+import std.ipc as ipc;
 import std.lines as lines;
 import std.strings as strings;
 import std.text as text;
@@ -200,6 +201,19 @@ Current builtin stdlib surface:
 - `std.bytes.get(ptr std.bytes.Buffer, int) -> result u8`
 - `std.bytes.set(ptr std.bytes.Buffer, int, u8) -> result bool`
 - `std.bytes.view(ptr std.bytes.Buffer) -> slice u8`
+- `std.ipc.Child { handle:ptr u8 }`
+- `std.ipc.spawn(str, slice str) -> result ptr std.ipc.Child`
+- `std.ipc.stdin_write(ptr std.ipc.Child, str) -> result int`
+- `std.ipc.stdin_write_line(ptr std.ipc.Child, str) -> result int`
+- `std.ipc.stdin_close(ptr std.ipc.Child) -> result bool`
+- `std.ipc.stdout_read(ptr std.ipc.Child, int) -> result str`
+- `std.ipc.stdout_read_line(ptr std.ipc.Child, int) -> result str`
+- `std.ipc.request_line(ptr std.ipc.Child, str, int) -> result str`
+- `std.ipc.stderr_read(ptr std.ipc.Child, int) -> result str`
+- `std.ipc.stderr_read_line(ptr std.ipc.Child, int) -> result str`
+- `std.ipc.wait(ptr std.ipc.Child) -> result int`
+- `std.ipc.kill(ptr std.ipc.Child) -> result bool`
+- `std.ipc.release(ptr std.ipc.Child) -> result bool`
 - `std.lines.Buffer { data:ptr str; length:int; capacity:int }`
 - `std.lines.new() -> result ptr std.lines.Buffer`
 - `std.lines.with_capacity(int) -> result ptr std.lines.Buffer`
@@ -528,6 +542,7 @@ Current runtime notes:
 - `std.io.read_line()` lowers to the same owned heap-backed runtime helper as `input()`.
 - `std.term` is the first low-level terminal/TUI slice. `write(...)`, `flush()`, `clear()`, line erase helpers, `move_cursor(...)`, save/restore cursor, cursor visibility, alternate-screen toggles, scroll-region helpers, `is_tty()`, terminal size queries, terminal capability queries, raw-mode enter/leave, raw and timed byte/event reads, style/color helpers, width helpers, buffer resize, and screen-buffer diff rendering all lower to embedded terminal helpers. Coordinates in `move_cursor(row, column)` and `set_scroll_region(top, bottom)` are zero-based at the language level and become one-based VT cursor positions in the runtime.
 - `std.bytes` is the first dynamic byte-storage slice built on top of core `slice T`. `Buffer` is a growable heap-owned byte container. `new()`, `with_capacity(...)`, `release(...)`, `clear(...)`, `length(...)`, `capacity(...)`, `push(...)`, `append(...)`, `get(...)`, `set(...)`, and `view(...)` lower to embedded runtime helpers. `view(...)` returns a non-owning `slice u8` over the current buffer contents.
+- `std.ipc` is the first cross-language child-process IPC slice. `spawn(program, args)` launches a child without shell string hardcoding, `stdin_write(...)` / `stdin_write_line(...)` write text to the child's stdin pipe, `stdout_read(...)` / `stderr_read(...)` expose raw chunk reads, `stdout_read_line(...)` / `stderr_read_line(...)` expose newline-delimited protocol reads, `request_line(...)` covers the common one-request/one-response stdout pattern, and `wait(...)`, `kill(...)`, and `release(...)` manage the child lifecycle. This first pass is blocking and text-first by design.
 - `std.lines` is the first line-oriented dynamic-storage slice for editor-style code. `Buffer` owns copies of inserted lines, `get(...)` returns a borrowed `str` view into that storage, and `set(...)`, `push(...)`, `insert(...)`, and `remove(...)` lower to embedded runtime helpers for line duplication and shifting.
 - `std.text` is the first dynamic text-building slice built on top of `std.bytes`. `Builder` uses the same growable storage shape, but `append(...)` accepts `str`, `push_byte(...)` appends one byte, `view(...)` returns a `slice u8`, and `build(...)` returns a freshly owned `str` on success.
 - `std.term.term_name()` returns an owned runtime string when the terminal name can be discovered.
@@ -573,6 +588,6 @@ Current runtime notes:
 - `std.process.platform()` and `std.process.arch()` return owned heap-backed copies of the current target platform/architecture strings.
 - `std.process.exit(code)` lowers to a runtime process-exit helper.
 - `std.x11` is currently a tiny experimental Linux-only window module for stress testing real host integration. `open_window(title, width, height)` returns a raw window handle as `result int`, `pump(handle)` reports whether the window should keep running, and `close(handle)` destroys the native window.
-- `free some_string;` releases tracked owned strings created by `input()`, `std.io.read_line()`, `str_copy(...)`, `str_concat(...)`, `std.strings.copy(...)`, `std.strings.concat(...)`, successful `std.text.build(...)`, `std.term.read_paste(...)`, `std.term.term_name(...)`, `std.fs.read_text(...)`, `std.fs.cwd(...)`, `std.env.get(...)`, `std.path.join(...)`, `std.path.file_name(...)`, `std.path.stem(...)`, `std.path.extension(...)`, `std.path.parent(...)`, `std.net.join_host_port(...)`, `std.net.recv(...)`, the `host` and `data` fields from successful `std.net.udp_recv_from(...)`, `std.process.platform(...)`, or `std.process.arch(...)`. Freeing string literals is a safe no-op in the generated runtime.
+- `free some_string;` releases tracked owned strings created by `input()`, `std.io.read_line()`, `str_copy(...)`, `str_concat(...)`, `std.strings.copy(...)`, `std.strings.concat(...)`, successful `std.text.build(...)`, `std.term.read_paste(...)`, `std.term.term_name(...)`, `std.fs.read_text(...)`, `std.fs.cwd(...)`, `std.env.get(...)`, `std.path.join(...)`, `std.path.file_name(...)`, `std.path.stem(...)`, `std.path.extension(...)`, `std.path.parent(...)`, `std.net.join_host_port(...)`, `std.net.recv(...)`, the `host` and `data` fields from successful `std.net.udp_recv_from(...)`, successful `std.ipc.stdout_read(...)`, successful `std.ipc.stdout_read_line(...)`, successful `std.ipc.request_line(...)`, successful `std.ipc.stderr_read(...)`, successful `std.ipc.stderr_read_line(...)`, `std.process.platform(...)`, or `std.process.arch(...)`. Freeing string literals is a safe no-op in the generated runtime.
 - `str` equality in the backend is content-based through `strcmp`, not pointer-identity based.
 - The parser now recovers across common statement and top-level syntax errors so one missing `;` does not collapse the whole file into a single follow-on failure.

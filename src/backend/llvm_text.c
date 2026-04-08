@@ -412,6 +412,10 @@ static bool cn_llvm_validate_call(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expre
             cn_llvm_call_matches(expression, "std.bytes", "length") ||
             cn_llvm_call_matches(expression, "std.bytes", "capacity") ||
             cn_llvm_call_matches(expression, "std.bytes", "view") ||
+            cn_llvm_call_matches(expression, "std.ipc", "stdin_close") ||
+            cn_llvm_call_matches(expression, "std.ipc", "wait") ||
+            cn_llvm_call_matches(expression, "std.ipc", "kill") ||
+            cn_llvm_call_matches(expression, "std.ipc", "release") ||
             cn_llvm_call_matches(expression, "std.lines", "with_capacity") ||
             cn_llvm_call_matches(expression, "std.lines", "release") ||
             cn_llvm_call_matches(expression, "std.lines", "clear") ||
@@ -463,9 +467,16 @@ static bool cn_llvm_validate_call(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expre
             cn_llvm_call_matches(expression, "std.math", "gcd") ||
             cn_llvm_call_matches(expression, "std.math", "lcm") ||
             cn_llvm_call_matches(expression, "std.math", "distance") ||
+            cn_llvm_call_matches(expression, "std.ipc", "spawn") ||
             cn_llvm_call_matches(expression, "std.bytes", "push") ||
             cn_llvm_call_matches(expression, "std.bytes", "append") ||
             cn_llvm_call_matches(expression, "std.bytes", "get") ||
+            cn_llvm_call_matches(expression, "std.ipc", "stdin_write") ||
+            cn_llvm_call_matches(expression, "std.ipc", "stdin_write_line") ||
+            cn_llvm_call_matches(expression, "std.ipc", "stdout_read") ||
+            cn_llvm_call_matches(expression, "std.ipc", "stdout_read_line") ||
+            cn_llvm_call_matches(expression, "std.ipc", "stderr_read") ||
+            cn_llvm_call_matches(expression, "std.ipc", "stderr_read_line") ||
             cn_llvm_call_matches(expression, "std.lines", "get") ||
             cn_llvm_call_matches(expression, "std.lines", "push") ||
             cn_llvm_call_matches(expression, "std.lines", "remove") ||
@@ -498,6 +509,7 @@ static bool cn_llvm_validate_call(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expre
         if (cn_llvm_call_matches(expression, "std.math", "clamp") ||
             cn_llvm_call_matches(expression, "std.math", "between") ||
             cn_llvm_call_matches(expression, "std.bytes", "set") ||
+            cn_llvm_call_matches(expression, "std.ipc", "request_line") ||
             cn_llvm_call_matches(expression, "std.lines", "set") ||
             cn_llvm_call_matches(expression, "std.lines", "insert") ||
             cn_llvm_call_matches(expression, "std.term", "set_style") ||
@@ -1858,6 +1870,10 @@ static cn_llvm_value cn_llvm_lower_builtin_call(cn_llvm_function_ctx *ctx, cn_ll
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_lines_new", arguments, 0);
     }
 
+    if (cn_llvm_call_matches(expression, "std.ipc", "spawn")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_ipc_spawn", arguments, 2);
+    }
+
     if (cn_llvm_call_matches(expression, "std.term", "is_tty")) {
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_term_is_tty", arguments, 0);
     }
@@ -2042,6 +2058,22 @@ static cn_llvm_value cn_llvm_lower_builtin_call(cn_llvm_function_ctx *ctx, cn_ll
 
     if (cn_llvm_call_matches(expression, "std.lines", "capacity")) {
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_lines_capacity", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.ipc", "stdin_close")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_ipc_stdin_close", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.ipc", "wait")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_ipc_wait", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.ipc", "kill")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_ipc_kill", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.ipc", "release")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_ipc_release", arguments, 1);
     }
 
     if (cn_llvm_call_matches(expression, "std.strings", "len")) {
@@ -2342,6 +2374,34 @@ static cn_llvm_value cn_llvm_lower_builtin_call(cn_llvm_function_ctx *ctx, cn_ll
 
     if (cn_llvm_call_matches(expression, "std.lines", "get")) {
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_lines_get", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.ipc", "stdin_write")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_ipc_stdin_write", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.ipc", "stdin_write_line")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_ipc_stdin_write_line", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.ipc", "stdout_read")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_ipc_stdout_read", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.ipc", "stdout_read_line")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_ipc_stdout_read_line", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.ipc", "request_line")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_ipc_request_line", arguments, 3);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.ipc", "stderr_read")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_ipc_stderr_read", arguments, 2);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.ipc", "stderr_read_line")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_ipc_stderr_read_line", arguments, 2);
     }
 
     if (cn_llvm_call_matches(expression, "std.lines", "push")) {
@@ -3431,6 +3491,7 @@ bool cn_backend_emit_llvm_ir(
     ctx.next_string_id = 0;
 
     bool use_x11 = cn_llvm_program_uses_builtin_module(program, "std.x11");
+    bool use_ipc = cn_llvm_program_uses_builtin_module(program, "std.ipc");
 
     if (!cn_llvm_collect_program_strings(&ctx)) {
         cn_llvm_release_strings(&ctx);
@@ -3459,7 +3520,7 @@ bool cn_backend_emit_llvm_ir(
     if (ctx.strings != NULL) {
         fputc('\n', stream);
     }
-    cn_llvm_emit_runtime_prelude(stream, use_x11);
+    cn_llvm_emit_runtime_prelude(stream, use_x11, use_ipc);
     fputs("\n\n", stream);
     if (!cn_llvm_emit_entry_wrapper(&ctx)) {
         cn_llvm_release_strings(&ctx);

@@ -3,6 +3,7 @@
 #endif
 
 #include "cnegative/backend.h"
+#include "cnegative/native_runtime.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -128,6 +129,31 @@ static bool cn_backend_write_ir_file(
     if (!io_ok) {
         cn_backend_delete_file(buffer);
         cn_backend_emit_toolchain_error(diagnostics, "could not finalize temporary llvm ir file", buffer);
+        return false;
+    }
+
+    return true;
+}
+
+static bool cn_backend_write_text_file(const char *path, const char *contents, cn_diag_bag *diagnostics, const char *message) {
+    FILE *stream = cn_backend_open_file(path, "wb");
+    if (stream == NULL) {
+        cn_backend_emit_toolchain_error(diagnostics, message, path);
+        return false;
+    }
+
+    size_t length = strlen(contents);
+    bool ok = fwrite(contents, 1, length, stream) == length;
+    if (fflush(stream) != 0) {
+        ok = false;
+    }
+    if (fclose(stream) != 0) {
+        ok = false;
+    }
+
+    if (!ok) {
+        cn_backend_delete_file(path);
+        cn_backend_emit_toolchain_error(diagnostics, message, path);
         return false;
     }
 
@@ -352,49 +378,85 @@ static bool cn_backend_compile_ir_to_object(const char *ir_path, const char *obj
     );
 }
 
+static bool cn_backend_compile_c_to_object(const char *source_path, const char *object_path, cn_diag_bag *diagnostics) {
+    char *clang18_argv[] = {
+        "clang-18",
+        "-c",
+        "-x",
+        "c",
+        (char *)source_path,
+        "-o",
+        (char *)object_path,
+        NULL
+    };
+    char *clang_argv[] = {
+        "clang",
+        "-c",
+        "-x",
+        "c",
+        (char *)source_path,
+        "-o",
+        (char *)object_path,
+        NULL
+    };
+
+    return cn_backend_run_clang_stage(
+        diagnostics,
+        clang18_argv,
+        clang_argv,
+        "clang failed to compile embedded runtime helper",
+        object_path
+    );
+}
+
 static bool cn_backend_link_object_to_binary(
     const cn_ir_program *program,
     const char *object_path,
+    const char *extra_object_path,
     const char *binary_path,
     cn_diag_bag *diagnostics
 ) {
+    bool use_ipc = cn_backend_program_uses_builtin_module(program, "std.ipc");
 #ifdef _WIN32
-    (void)program;
-    char *clang18_argv[] = {
-        "clang-18",
-        (char *)object_path,
-        "-o",
-        (char *)binary_path,
-        "-lws2_32",
-        NULL
-    };
-    char *clang_argv[] = {
-        "clang",
-        (char *)object_path,
-        "-o",
-        (char *)binary_path,
-        "-lws2_32",
-        NULL
-    };
+    char *clang18_argv[8];
+    char *clang_argv[8];
+    size_t clang18_index = 0;
+    size_t clang_index = 0;
 #else
     bool use_x11 = cn_backend_program_uses_builtin_module(program, "std.x11");
-    char *clang18_argv[] = {
-        "clang-18",
-        (char *)object_path,
-        "-o",
-        (char *)binary_path,
-        use_x11 ? "-lX11" : NULL,
-        NULL
-    };
-    char *clang_argv[] = {
-        "clang",
-        (char *)object_path,
-        "-o",
-        (char *)binary_path,
-        use_x11 ? "-lX11" : NULL,
-        NULL
-    };
+    char *clang18_argv[8];
+    char *clang_argv[8];
+    size_t clang18_index = 0;
+    size_t clang_index = 0;
 #endif
+
+    clang18_argv[clang18_index++] = "clang-18";
+    clang18_argv[clang18_index++] = (char *)object_path;
+    clang_argv[clang_index++] = "clang";
+    clang_argv[clang_index++] = (char *)object_path;
+
+    if (use_ipc && extra_object_path != NULL) {
+        clang18_argv[clang18_index++] = (char *)extra_object_path;
+        clang_argv[clang_index++] = (char *)extra_object_path;
+    }
+
+    clang18_argv[clang18_index++] = "-o";
+    clang18_argv[clang18_index++] = (char *)binary_path;
+    clang_argv[clang_index++] = "-o";
+    clang_argv[clang_index++] = (char *)binary_path;
+
+#ifdef _WIN32
+    clang18_argv[clang18_index++] = "-lws2_32";
+    clang_argv[clang_index++] = "-lws2_32";
+#else
+    if (use_x11) {
+        clang18_argv[clang18_index++] = "-lX11";
+        clang_argv[clang_index++] = "-lX11";
+    }
+#endif
+
+    clang18_argv[clang18_index] = NULL;
+    clang_argv[clang_index] = NULL;
 
     return cn_backend_run_clang_stage(
         diagnostics,
@@ -431,7 +493,12 @@ bool cn_backend_build_binary(
 ) {
     char ir_path[512];
     char object_path[512];
+    char runtime_source_path[512];
+    char runtime_object_path[512];
     bool ok = false;
+    bool use_ipc = cn_backend_program_uses_builtin_module(program, "std.ipc");
+    bool has_runtime_source = false;
+    bool has_runtime_object = false;
 
     if (!cn_backend_write_ir_file(allocator, program, diagnostics, ir_path, sizeof(ir_path))) {
         return false;
@@ -443,10 +510,50 @@ bool cn_backend_build_binary(
         return false;
     }
 
-    ok = cn_backend_compile_ir_to_object(ir_path, object_path, diagnostics) &&
-         cn_backend_link_object_to_binary(program, object_path, output_path, diagnostics);
+    if (use_ipc) {
+        if (!cn_backend_create_temp_path(runtime_source_path, sizeof(runtime_source_path), "cnc")) {
+            cn_backend_delete_file(ir_path);
+            cn_backend_delete_file(object_path);
+            cn_backend_emit_toolchain_error(diagnostics, "could not create temporary embedded runtime source file", "<temp>");
+            return false;
+        }
+        has_runtime_source = true;
+        if (!cn_backend_create_temp_path(runtime_object_path, sizeof(runtime_object_path), "cno")) {
+            cn_backend_delete_file(ir_path);
+            cn_backend_delete_file(object_path);
+            cn_backend_delete_file(runtime_source_path);
+            cn_backend_emit_toolchain_error(diagnostics, "could not create temporary embedded runtime object file", "<temp>");
+            return false;
+        }
+        has_runtime_object = true;
+    }
+
+    ok = cn_backend_compile_ir_to_object(ir_path, object_path, diagnostics);
+    if (ok && use_ipc) {
+        ok = cn_backend_write_text_file(
+            runtime_source_path,
+            cn_backend_ipc_runtime_source(),
+            diagnostics,
+            "could not write embedded runtime source file"
+        ) && cn_backend_compile_c_to_object(runtime_source_path, runtime_object_path, diagnostics);
+    }
+    if (ok) {
+        ok = cn_backend_link_object_to_binary(
+            program,
+            object_path,
+            use_ipc ? runtime_object_path : NULL,
+            output_path,
+            diagnostics
+        );
+    }
 
     cn_backend_delete_file(ir_path);
     cn_backend_delete_file(object_path);
+    if (has_runtime_source) {
+        cn_backend_delete_file(runtime_source_path);
+    }
+    if (has_runtime_object) {
+        cn_backend_delete_file(runtime_object_path);
+    }
     return ok && !cn_diag_has_error(diagnostics);
 }

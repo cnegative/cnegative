@@ -7,6 +7,7 @@
 void cn_llvm_emit_runtime_decls(FILE *stream);
 void cn_llvm_emit_runtime_core(FILE *stream);
 void cn_llvm_emit_runtime_bytes(FILE *stream);
+void cn_llvm_emit_runtime_ipc(FILE *stream);
 void cn_llvm_emit_runtime_lines(FILE *stream);
 void cn_llvm_emit_runtime_strings(FILE *stream);
 void cn_llvm_emit_runtime_text(FILE *stream);
@@ -21,6 +22,6 @@ void cn_llvm_emit_runtime_process(FILE *stream);
 void cn_llvm_emit_runtime_io(FILE *stream);
 void cn_llvm_emit_runtime_term(FILE *stream);
 void cn_llvm_emit_runtime_x11(FILE *stream);
-void cn_llvm_emit_runtime_prelude(FILE *stream, bool use_x11);
+void cn_llvm_emit_runtime_prelude(FILE *stream, bool use_x11, bool use_ipc);
 
 #endif

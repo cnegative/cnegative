@@ -162,6 +162,7 @@ static void cn_builtin_source_init(cn_allocator *allocator, cn_source *source, c
 static bool cn_is_builtin_stdlib_module_name(cn_strview module_name) {
     return cn_sv_eq_cstr(module_name, "std.math") ||
            cn_sv_eq_cstr(module_name, "std.bytes") ||
+           cn_sv_eq_cstr(module_name, "std.ipc") ||
            cn_sv_eq_cstr(module_name, "std.lines") ||
            cn_sv_eq_cstr(module_name, "std.strings") ||
            cn_sv_eq_cstr(module_name, "std.text") ||
@@ -486,6 +487,133 @@ static cn_program *cn_builtin_stdlib_program(cn_allocator *allocator, const char
         );
         cn_builtin_push_param(allocator, remove, "index", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
         cn_program_push_function(program, remove);
+
+        return program;
+    }
+
+    if (strcmp(module_name, "std.ipc") == 0) {
+        cn_struct_decl *child = cn_builtin_struct_create(allocator, "Child");
+        cn_builtin_push_struct_field(allocator, child, "handle", cn_builtin_ptr_type(allocator, cn_builtin_primitive_type(allocator, CN_TYPE_U8)));
+        cn_program_push_struct(program, child);
+
+        cn_function *spawn = cn_builtin_function_create(
+            allocator,
+            "spawn",
+            cn_builtin_result_wrapped_type(
+                allocator,
+                cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.ipc", "Child"))
+            )
+        );
+        cn_builtin_push_param(allocator, spawn, "program", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(allocator, spawn, "args", cn_builtin_slice_type(allocator, cn_builtin_primitive_type(allocator, CN_TYPE_STR)));
+        cn_program_push_function(program, spawn);
+
+        cn_function *stdin_write = cn_builtin_function_create(allocator, "stdin_write", cn_builtin_result_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(
+            allocator,
+            stdin_write,
+            "child",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.ipc", "Child"))
+        );
+        cn_builtin_push_param(allocator, stdin_write, "value", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, stdin_write);
+
+        cn_function *stdin_write_line = cn_builtin_function_create(allocator, "stdin_write_line", cn_builtin_result_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(
+            allocator,
+            stdin_write_line,
+            "child",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.ipc", "Child"))
+        );
+        cn_builtin_push_param(allocator, stdin_write_line, "value", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_program_push_function(program, stdin_write_line);
+
+        cn_function *stdin_close = cn_builtin_function_create(allocator, "stdin_close", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(
+            allocator,
+            stdin_close,
+            "child",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.ipc", "Child"))
+        );
+        cn_program_push_function(program, stdin_close);
+
+        cn_function *stdout_read = cn_builtin_function_create(allocator, "stdout_read", cn_builtin_result_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(
+            allocator,
+            stdout_read,
+            "child",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.ipc", "Child"))
+        );
+        cn_builtin_push_param(allocator, stdout_read, "max_bytes", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, stdout_read);
+
+        cn_function *stdout_read_line = cn_builtin_function_create(allocator, "stdout_read_line", cn_builtin_result_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(
+            allocator,
+            stdout_read_line,
+            "child",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.ipc", "Child"))
+        );
+        cn_builtin_push_param(allocator, stdout_read_line, "max_bytes", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, stdout_read_line);
+
+        cn_function *request_line = cn_builtin_function_create(allocator, "request_line", cn_builtin_result_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(
+            allocator,
+            request_line,
+            "child",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.ipc", "Child"))
+        );
+        cn_builtin_push_param(allocator, request_line, "value", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(allocator, request_line, "max_bytes", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, request_line);
+
+        cn_function *stderr_read = cn_builtin_function_create(allocator, "stderr_read", cn_builtin_result_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(
+            allocator,
+            stderr_read,
+            "child",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.ipc", "Child"))
+        );
+        cn_builtin_push_param(allocator, stderr_read, "max_bytes", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, stderr_read);
+
+        cn_function *stderr_read_line = cn_builtin_function_create(allocator, "stderr_read_line", cn_builtin_result_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(
+            allocator,
+            stderr_read_line,
+            "child",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.ipc", "Child"))
+        );
+        cn_builtin_push_param(allocator, stderr_read_line, "max_bytes", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, stderr_read_line);
+
+        cn_function *wait = cn_builtin_function_create(allocator, "wait", cn_builtin_result_type(allocator, CN_TYPE_INT));
+        cn_builtin_push_param(
+            allocator,
+            wait,
+            "child",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.ipc", "Child"))
+        );
+        cn_program_push_function(program, wait);
+
+        cn_function *kill = cn_builtin_function_create(allocator, "kill", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(
+            allocator,
+            kill,
+            "child",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.ipc", "Child"))
+        );
+        cn_program_push_function(program, kill);
+
+        cn_function *release = cn_builtin_function_create(allocator, "release", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(
+            allocator,
+            release,
+            "child",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.ipc", "Child"))
+        );
+        cn_program_push_function(program, release);
 
         return program;
     }

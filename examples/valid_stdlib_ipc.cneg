@@ -1,0 +1,66 @@
+import std.io as io;
+import std.ipc as ipc;
+import std.process as process;
+import std.strings as strings;
+
+fn:result str python_program() {
+    let platform:str = process.platform();
+    if strings.eq(platform, "windows") {
+        free platform;
+        return ok "python";
+    }
+
+    free platform;
+    return ok "python3";
+}
+
+fn:result int run() {
+    try program = python_program();
+
+    let args:str[2] = [
+        "-c",
+        `import json
+import sys
+
+line = sys.stdin.readline()
+data = json.loads(line)
+sys.stdout.write(json.dumps({"tag":"ok","text":data["text"].upper()}, separators=(",", ":")) + "\n")
+sys.stderr.write("ready\n")`
+    ];
+
+    try child = ipc.spawn(program, args);
+    defer ipc.release(child);
+
+    try out = ipc.request_line(child, `{"text":"hello"}`, 256);
+    defer free out;
+    if ipc.stdin_close(child).ok == false {
+        return err;
+    }
+
+    try err_text = ipc.stderr_read_line(child, 64);
+    defer free err_text;
+    try status = ipc.wait(child);
+
+    if status != 0 {
+        return err;
+    }
+
+    if strings.eq(out, `{"tag":"ok","text":"HELLO"}`) == false {
+        return err;
+    }
+
+    if strings.eq(err_text, "ready") == false {
+        return err;
+    }
+
+    io.write_line(out);
+    return ok 27;
+}
+
+fn:int main() {
+    let outcome:result int = run();
+    if outcome.ok == false {
+        return 1;
+    }
+    return outcome.value;
+}

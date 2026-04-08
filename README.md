@@ -83,8 +83,9 @@ Implemented today:
 - `slice T` views with `.length`, indexing, subslicing, and array-to-slice coercion
 - field access and indexing
 - module imports and module-qualified public calls
-- initial stdlib modules: `std.math`, `std.bytes`, `std.lines`, `std.strings`, `std.text`, `std.parse`, `std.fs`, `std.io`, `std.term`, `std.time`, `std.env`, `std.path`, `std.net`, `std.process`, and the experimental Linux-only `std.x11`
+- initial stdlib modules: `std.math`, `std.bytes`, `std.ipc`, `std.lines`, `std.strings`, `std.text`, `std.parse`, `std.fs`, `std.io`, `std.term`, `std.time`, `std.env`, `std.path`, `std.net`, `std.process`, and the experimental Linux-only `std.x11`
 - `std.bytes.Buffer` as a growable byte container with append, get/set, and slice-view helpers
+- `std.ipc.Child` as a text-first child-process IPC handle with explicit `program + args` spawning, raw and line-oriented stdin writes, stdout/stderr reads, a one-call line request helper, wait, kill, and release helpers
 - `std.lines.Buffer` as a growable owned line container with borrowed reads and insert/remove helpers
 - `std.text.Builder` as a growable text builder that can accumulate strings and return a final owned `str`
 - a low-level terminal foundation through `std.term`, including capability queries, raw and timed byte/event reads, key/mouse/resize/paste events, cursor/scroll control, style/color control including RGB helpers, width helpers, buffer resize, and clipped diff rendering
@@ -121,7 +122,7 @@ Current integer rule:
 
 Current runtime boundary:
 
-- owned runtime strings are currently produced by `input()`, `std.io.read_line(...)`, `str_copy(...)`, `str_concat(...)`, `std.strings.copy(...)`, `std.strings.concat(...)`, successful `std.text.build(...)`, `std.term.read_paste(...)`, `std.term.term_name(...)`, `std.fs.read_text(...)`, `std.fs.cwd(...)`, `std.env.get(...)`, `std.path.join(...)`, `std.path.file_name(...)`, `std.path.stem(...)`, `std.path.extension(...)`, `std.path.parent(...)`, `std.net.join_host_port(...)`, `std.net.recv(...)`, the `host` and `data` fields from successful `std.net.udp_recv_from(...)`, `std.process.platform(...)`, and `std.process.arch(...)`
+- owned runtime strings are currently produced by `input()`, `std.io.read_line(...)`, `str_copy(...)`, `str_concat(...)`, `std.strings.copy(...)`, `std.strings.concat(...)`, successful `std.text.build(...)`, `std.term.read_paste(...)`, `std.term.term_name(...)`, `std.fs.read_text(...)`, `std.fs.cwd(...)`, `std.env.get(...)`, `std.path.join(...)`, `std.path.file_name(...)`, `std.path.stem(...)`, `std.path.extension(...)`, `std.path.parent(...)`, `std.net.join_host_port(...)`, `std.net.recv(...)`, the `host` and `data` fields from successful `std.net.udp_recv_from(...)`, successful `std.ipc.stdout_read(...)`, successful `std.ipc.stdout_read_line(...)`, successful `std.ipc.request_line(...)`, successful `std.ipc.stderr_read(...)`, successful `std.ipc.stderr_read_line(...)`, `std.process.platform(...)`, and `std.process.arch(...)`
 - `free some_string;` safely releases tracked owned strings from those producers
 - the standard library/runtime surface is still intentionally small
 

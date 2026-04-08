@@ -10,7 +10,7 @@
 - Module-level constant declarations lowered into canonical IR form.
 - Canonical module-qualified function and struct names in lowered output.
 - Canonical module-qualified public constants in lowered output.
-- Builtin stdlib calls preserved as canonical module-qualified builtin targets such as `std.math.gcd(...)`, `std.bytes.append(...)`, `std.lines.insert(...)`, `std.strings.concat(...)`, `std.text.build(...)`, `std.io.write_line(...)`, `std.time.now_ms(...)`, `std.env.get(...)`, `std.path.extension(...)`, `std.fs.file_size(...)`, `std.net.tcp_connect(...)`, `std.net.udp_recv_from(...)`, and `std.process.platform(...)`.
+- Builtin stdlib calls preserved as canonical module-qualified builtin targets such as `std.math.gcd(...)`, `std.bytes.append(...)`, `std.ipc.spawn(...)`, `std.lines.insert(...)`, `std.strings.concat(...)`, `std.text.build(...)`, `std.io.write_line(...)`, `std.time.now_ms(...)`, `std.env.get(...)`, `std.path.extension(...)`, `std.fs.file_size(...)`, `std.net.tcp_connect(...)`, `std.net.udp_recv_from(...)`, and `std.process.platform(...)`.
 - Explicit return statements preserved from source.
 - Structured control flow preserved for `if`, `while`, `loop`, and range `for`.
 - Simple optimization passes run before later backend stages.
@@ -49,6 +49,10 @@ std.io.write_line("ready");
 let env_value:result str = std.env.get("PATH");
 let path_value:str = std.path.join("build", "demo.txt");
 let cwd:result str = std.fs.cwd();
+let child:result ptr std.ipc.Child = std.ipc.spawn("python3", args);
+if child.ok {
+    let line:result str = std.ipc.request_line(child.value, "{\"tag\":\"ping\"}", 256);
+}
 let endpoint:str = std.net.join_host_port("127.0.0.1", 8080);
 let socket:result int = std.net.tcp_connect("127.0.0.1", 34567);
 if socket.ok {

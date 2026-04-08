@@ -69,6 +69,7 @@ cn_verify_llvm_ir() {
 ./build/cnegc check examples/valid_u8.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_slice.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_stdlib_bytes_text.cneg >"$tmp_valid"
+./build/cnegc check examples/valid_stdlib_ipc.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_stdlib_lines.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_if_expr.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_defer.cneg >"$tmp_valid"
@@ -452,6 +453,28 @@ if ! grep -q 'std.lines.get' "$tmp_ir"; then
 fi
 if ! grep -q 'result ptr std.lines.Buffer' "$tmp_ir"; then
     printf 'expected std.lines buffer result type in typed IR for valid_stdlib_lines.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+
+./build/cnegc ir examples/valid_stdlib_ipc.cneg >"$tmp_ir"
+if ! grep -q 'std.ipc.spawn' "$tmp_ir"; then
+    printf 'expected std.ipc.spawn builtin lowering in typed IR for valid_stdlib_ipc.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.ipc.request_line' "$tmp_ir"; then
+    printf 'expected std.ipc.request_line builtin lowering in typed IR for valid_stdlib_ipc.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.ipc.stderr_read_line' "$tmp_ir"; then
+    printf 'expected std.ipc.stderr_read_line builtin lowering in typed IR for valid_stdlib_ipc.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'result ptr std.ipc.Child' "$tmp_ir"; then
+    printf 'expected std.ipc child result type in typed IR for valid_stdlib_ipc.cneg\n'
     cat "$tmp_ir"
     exit 1
 fi
@@ -934,6 +957,29 @@ if ! grep -q '@cn_lines_insert' "$tmp_ll"; then
 fi
 if ! grep -q '@cn_lines_get' "$tmp_ll"; then
     printf 'expected std.lines get runtime lowering in LLVM IR for valid_stdlib_lines.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+cn_verify_llvm_ir "$tmp_ll" "$tmp_bc"
+
+./build/cnegc llvm-ir examples/valid_stdlib_ipc.cneg >"$tmp_ll"
+if ! grep -q '@cn_ipc_spawn' "$tmp_ll"; then
+    printf 'expected std.ipc spawn runtime lowering in LLVM IR for valid_stdlib_ipc.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_ipc_native_spawn' "$tmp_ll"; then
+    printf 'expected std.ipc native spawn declaration in LLVM IR for valid_stdlib_ipc.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_ipc_request_line' "$tmp_ll"; then
+    printf 'expected std.ipc request line runtime lowering in LLVM IR for valid_stdlib_ipc.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_ipc_stdout_read_line' "$tmp_ll"; then
+    printf 'expected std.ipc stdout line runtime lowering in LLVM IR for valid_stdlib_ipc.cneg\n'
     cat "$tmp_ll"
     exit 1
 fi
@@ -1479,6 +1525,22 @@ if [ "$status" -ne 32 ]; then
 fi
 if ! grep -q '^beta$' "$tmp_run"; then
     printf 'expected valid_stdlib_lines binary to print borrowed line output\n'
+    cat "$tmp_run"
+    exit 1
+fi
+
+./build/cnegc build examples/valid_stdlib_ipc.cneg "$tmp_bin" >"$tmp_valid"
+set +e
+"$tmp_bin" >"$tmp_run"
+status=$?
+set -e
+if [ "$status" -ne 27 ]; then
+    printf 'expected valid_stdlib_ipc binary to exit 27, got %d\n' "$status"
+    cat "$tmp_run"
+    exit 1
+fi
+if ! grep -q '^{"tag":"ok","text":"HELLO"}$' "$tmp_run"; then
+    printf 'expected valid_stdlib_ipc binary to print json-line child output\n'
     cat "$tmp_run"
     exit 1
 fi
