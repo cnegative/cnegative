@@ -48,7 +48,7 @@ function(cn_run_expect_success output_path)
         )
     endif()
 
-    file(WRITE "${output_path}" "${stdout_text}${stderr_text}")
+    file(WRITE "${output_path}" "${stdout_text}")
 endfunction()
 
 function(cn_run_expect_failure output_path)
@@ -97,7 +97,7 @@ function(cn_run_binary output_path expected_status input_file)
         )
     endif()
 
-    file(WRITE "${output_path}" "${stdout_text}${stderr_text}")
+    file(WRITE "${output_path}" "${stdout_text}")
 endfunction()
 
 function(cn_assert_contains file_path expected_text)
