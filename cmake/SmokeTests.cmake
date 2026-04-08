@@ -610,7 +610,7 @@ cn_assert_contains("${TMP_RUN}" "beta")
 
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" build examples/valid_stdlib_ipc.cneg "${TMP_BIN}")
 cn_run_binary("${TMP_RUN}" 27 "" "${TMP_BIN}")
-cn_assert_contains("${TMP_RUN}" "{\"tag\":\"ok\",\"text\":\"HELLO\"}")
+cn_assert_contains("${TMP_RUN}" "HELLO")
 
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" build examples/valid_if_expr.cneg "${TMP_BIN}")
 cn_run_binary("${TMP_RUN}" 1 "" "${TMP_BIN}")

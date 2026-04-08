@@ -1,9 +1,14 @@
+import std.env as env;
 import std.io as io;
 import std.ipc as ipc;
 import std.process as process;
 import std.strings as strings;
 
 fn:result str python_program() {
+    if env.has("CNEG_SMOKE_PYTHON") {
+        return env.get("CNEG_SMOKE_PYTHON");
+    }
+
     let platform:str = process.platform();
     if strings.eq(platform, "windows") {
         free platform;
@@ -19,13 +24,13 @@ fn:result int run() {
 
     let args:str[2] = [
         "-c",
-        `import json,sys; line=sys.stdin.readline(); data=json.loads(line); sys.stdout.write(json.dumps({"tag":"ok","text":data["text"].upper()}, separators=(",", ":")) + "\n"); sys.stderr.write("ready\n")`
+        `import sys; line=sys.stdin.readline(); sys.stdout.write(line.upper()); sys.stderr.write(line)`
     ];
 
     try child = ipc.spawn(program, args);
     defer ipc.release(child);
 
-    try out = ipc.request_line(child, `{"text":"hello"}`, 256);
+    try out = ipc.request_line(child, "hello", 256);
     defer free out;
     if ipc.stdin_close(child).ok == false {
         return err;
@@ -39,11 +44,11 @@ fn:result int run() {
         return err;
     }
 
-    if strings.eq(out, `{"tag":"ok","text":"HELLO"}`) == false {
+    if strings.eq(out, "HELLO") == false {
         return err;
     }
 
-    if strings.eq(err_text, "ready") == false {
+    if strings.eq(err_text, "hello") == false {
         return err;
     }
 

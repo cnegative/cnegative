@@ -1539,8 +1539,8 @@ if [ "$status" -ne 27 ]; then
     cat "$tmp_run"
     exit 1
 fi
-if ! grep -q '^{"tag":"ok","text":"HELLO"}$' "$tmp_run"; then
-    printf 'expected valid_stdlib_ipc binary to print json-line child output\n'
+if ! grep -q '^HELLO$' "$tmp_run"; then
+    printf 'expected valid_stdlib_ipc binary to print request/response child output\n'
     cat "$tmp_run"
     exit 1
 fi

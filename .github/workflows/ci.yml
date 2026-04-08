@@ -28,6 +28,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
       - name: Install Clang and LLVM on Linux
         if: runner.os == 'Linux'
         run: |
@@ -51,16 +56,7 @@ jobs:
         run: |
           cmake --version
           clang --version
-          if command -v python3 >/dev/null 2>&1; then
-            python3 --version
-          elif command -v python >/dev/null 2>&1; then
-            python --version
-          elif command -v py >/dev/null 2>&1; then
-            py -3 --version
-          else
-            echo "Python 3 not found; network integration targets will be unavailable"
-            exit 1
-          fi
+          python --version
           if command -v llvm-as-18 >/dev/null 2>&1; then
             llvm-as-18 --version
           elif command -v llvm-as >/dev/null 2>&1; then
@@ -68,6 +64,10 @@ jobs:
           else
             echo "llvm-as not found; smoke tests will fall back to clang -c -x ir"
           fi
+
+      - name: Resolve Python executable
+        run: |
+          echo "CNEG_SMOKE_PYTHON=$(python -c 'import sys; print(sys.executable)')" >> "$GITHUB_ENV"
 
       - name: Configure
         run: cmake -S . -B out
@@ -107,6 +107,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
       - name: Install Clang and LLVM
         run: |
           sudo apt-get update
@@ -116,16 +121,7 @@ jobs:
         run: |
           make --version
           clang --version
-          if command -v python3 >/dev/null 2>&1; then
-            python3 --version
-          elif command -v python >/dev/null 2>&1; then
-            python --version
-          elif command -v py >/dev/null 2>&1; then
-            py -3 --version
-          else
-            echo "Python 3 not found; network integration targets will be unavailable"
-            exit 1
-          fi
+          python --version
           if command -v llvm-as-18 >/dev/null 2>&1; then
             llvm-as-18 --version
           elif command -v llvm-as >/dev/null 2>&1; then
@@ -133,6 +129,10 @@ jobs:
           else
             echo "llvm-as not found; smoke tests will fall back to clang -c -x ir"
           fi
+
+      - name: Resolve Python executable
+        run: |
+          echo "CNEG_SMOKE_PYTHON=$(python -c 'import sys; print(sys.executable)')" >> "$GITHUB_ENV"
 
       - name: Build and test
         run: make test
