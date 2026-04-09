@@ -1,0 +1,9 @@
+fn:result int ok_value() {
+    return ok 7;
+}
+
+fn:int main() {
+    let outcome:result int = ok_value();
+    free outcome;
+    return 0;
+}

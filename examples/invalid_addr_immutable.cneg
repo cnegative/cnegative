@@ -1,0 +1,5 @@
+fn:int main() {
+    let value:int = 7;
+    addr value;
+    return 0;
+}

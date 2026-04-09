@@ -1392,16 +1392,90 @@ static const cn_type_ref *cn_check_call(cn_sema_ctx *ctx, cn_scope *scope, const
     return cn_builtin_type(CN_TYPE_UNKNOWN);
 }
 
-static const cn_type_ref *cn_check_address_of(cn_sema_ctx *ctx, cn_scope *scope, const cn_expr *expression) {
-    const cn_expr *target = expression->data.addr_expr.target;
-    if (target->kind != CN_EXPR_NAME && target->kind != CN_EXPR_FIELD && target->kind != CN_EXPR_INDEX && target->kind != CN_EXPR_DEREF) {
+static bool cn_check_address_target_storage(cn_sema_ctx *ctx, cn_scope *scope, const cn_expr *target) {
+    switch (target->kind) {
+    case CN_EXPR_NAME: {
+        const cn_binding *binding = cn_scope_lookup(scope, target->data.name);
+        if (binding != NULL) {
+            if (!binding->is_mutable) {
+                cn_diag_emit(
+                    ctx->diagnostics,
+                    CN_DIAG_ERROR,
+                    "E3035",
+                    target->offset,
+                    "cannot take address of immutable binding '%.*s'; use 'let mut' for mutable storage",
+                    (int)target->data.name.length,
+                    target->data.name.data
+                );
+                return false;
+            }
+            return true;
+        }
+
+        if (cn_find_const(ctx, ctx->module, target->data.name) != NULL) {
+            cn_diag_emit(
+                ctx->diagnostics,
+                CN_DIAG_ERROR,
+                "E3036",
+                target->offset,
+                "cannot take address of module constant '%.*s'",
+                (int)target->data.name.length,
+                target->data.name.data
+            );
+            return false;
+        }
+
+        return true;
+    }
+    case CN_EXPR_FIELD:
+        if (target->data.field.base->kind == CN_EXPR_NAME &&
+            cn_sv_eq_cstr(target->data.field.field_name, "value")) {
+            const cn_binding *binding = cn_scope_lookup(scope, target->data.field.base->data.name);
+            if (binding != NULL && binding->type->kind == CN_TYPE_PTR) {
+                return true;
+            }
+        }
+        if (target->data.field.base->kind == CN_EXPR_NAME) {
+            cn_resolved_const resolved_const = cn_resolve_source_named_const(
+                ctx,
+                target->data.field.base->data.name,
+                target->data.field.field_name
+            );
+            if (resolved_const.decl != NULL) {
+                cn_diag_emit(
+                    ctx->diagnostics,
+                    CN_DIAG_ERROR,
+                    "E3036",
+                    target->offset,
+                    "cannot take address of module constant '%.*s.%.*s'",
+                    (int)target->data.field.base->data.name.length,
+                    target->data.field.base->data.name.data,
+                    (int)target->data.field.field_name.length,
+                    target->data.field.field_name.data
+                );
+                return false;
+            }
+        }
+        return cn_check_address_target_storage(ctx, scope, target->data.field.base);
+    case CN_EXPR_INDEX:
+        return cn_check_address_target_storage(ctx, scope, target->data.index.base);
+    case CN_EXPR_DEREF:
+        return true;
+    default:
         cn_diag_emit(
             ctx->diagnostics,
             CN_DIAG_ERROR,
             "E3031",
-            expression->offset,
+            target->offset,
             "address-of target must be a named value, dereference, field, or array element"
         );
+        return false;
+    }
+}
+
+static const cn_type_ref *cn_check_address_of(cn_sema_ctx *ctx, cn_scope *scope, const cn_expr *expression) {
+    const cn_expr *target = expression->data.addr_expr.target;
+    if (!cn_check_address_target_storage(ctx, scope, target)) {
         return cn_builtin_type(CN_TYPE_UNKNOWN);
     }
 
@@ -1936,6 +2010,26 @@ static bool cn_check_statement(cn_sema_ctx *ctx, cn_scope *scope, const cn_stmt 
     }
     case CN_STMT_FREE: {
         const cn_type_ref *value_type = cn_check_expression_hint(ctx, scope, statement->data.free_stmt.value, NULL);
+        if (value_type->kind == CN_TYPE_SLICE) {
+            cn_diag_emit(
+                ctx->diagnostics,
+                CN_DIAG_ERROR,
+                "E3037",
+                statement->offset,
+                "free cannot release a slice value; slices are non-owning views"
+            );
+            return true;
+        }
+        if (value_type->kind == CN_TYPE_RESULT) {
+            cn_diag_emit(
+                ctx->diagnostics,
+                CN_DIAG_ERROR,
+                "E3038",
+                statement->offset,
+                "free cannot release a result value; unwrap the owned payload first"
+            );
+            return true;
+        }
         if (value_type->kind != CN_TYPE_PTR && value_type->kind != CN_TYPE_STR) {
             cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3019", statement->offset, "free requires a ptr or str value");
         }

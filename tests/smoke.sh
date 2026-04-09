@@ -1066,6 +1066,28 @@ if ! grep -q 'E3031' "$tmp_invalid"; then
     exit 1
 fi
 
+if ./build/cnegc check examples/invalid_addr_immutable.cneg >"$tmp_invalid" 2>&1; then
+    printf 'expected invalid_addr_immutable.cneg to fail\n'
+    exit 1
+fi
+
+if ! grep -q 'E3035' "$tmp_invalid"; then
+    printf 'expected E3035 in invalid_addr_immutable.cneg output\n'
+    cat "$tmp_invalid"
+    exit 1
+fi
+
+if ./build/cnegc check examples/invalid_addr_const.cneg >"$tmp_invalid" 2>&1; then
+    printf 'expected invalid_addr_const.cneg to fail\n'
+    exit 1
+fi
+
+if ! grep -q 'E3036' "$tmp_invalid"; then
+    printf 'expected E3036 in invalid_addr_const.cneg output\n'
+    cat "$tmp_invalid"
+    exit 1
+fi
+
 if ./build/cnegc check examples/invalid_deref_non_ptr.cneg >"$tmp_invalid" 2>&1; then
     printf 'expected invalid_deref_non_ptr.cneg to fail\n'
     exit 1
@@ -1073,6 +1095,28 @@ fi
 
 if ! grep -q 'E3032' "$tmp_invalid"; then
     printf 'expected E3032 in invalid_deref_non_ptr.cneg output\n'
+    cat "$tmp_invalid"
+    exit 1
+fi
+
+if ./build/cnegc check examples/invalid_free_slice.cneg >"$tmp_invalid" 2>&1; then
+    printf 'expected invalid_free_slice.cneg to fail\n'
+    exit 1
+fi
+
+if ! grep -q 'E3037' "$tmp_invalid"; then
+    printf 'expected E3037 in invalid_free_slice.cneg output\n'
+    cat "$tmp_invalid"
+    exit 1
+fi
+
+if ./build/cnegc check examples/invalid_free_result.cneg >"$tmp_invalid" 2>&1; then
+    printf 'expected invalid_free_result.cneg to fail\n'
+    exit 1
+fi
+
+if ! grep -q 'E3038' "$tmp_invalid"; then
+    printf 'expected E3038 in invalid_free_result.cneg output\n'
     cat "$tmp_invalid"
     exit 1
 fi

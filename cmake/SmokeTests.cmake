@@ -452,8 +452,20 @@ cn_assert_contains("${TMP_INVALID}" "E3030")
 cn_run_expect_failure("${TMP_INVALID}" "${CNEGC_BIN}" check examples/invalid_addr_target.cneg)
 cn_assert_contains("${TMP_INVALID}" "E3031")
 
+cn_run_expect_failure("${TMP_INVALID}" "${CNEGC_BIN}" check examples/invalid_addr_immutable.cneg)
+cn_assert_contains("${TMP_INVALID}" "E3035")
+
+cn_run_expect_failure("${TMP_INVALID}" "${CNEGC_BIN}" check examples/invalid_addr_const.cneg)
+cn_assert_contains("${TMP_INVALID}" "E3036")
+
 cn_run_expect_failure("${TMP_INVALID}" "${CNEGC_BIN}" check examples/invalid_deref_non_ptr.cneg)
 cn_assert_contains("${TMP_INVALID}" "E3032")
+
+cn_run_expect_failure("${TMP_INVALID}" "${CNEGC_BIN}" check examples/invalid_free_slice.cneg)
+cn_assert_contains("${TMP_INVALID}" "E3037")
+
+cn_run_expect_failure("${TMP_INVALID}" "${CNEGC_BIN}" check examples/invalid_free_result.cneg)
+cn_assert_contains("${TMP_INVALID}" "E3038")
 
 cn_run_expect_failure("${TMP_INVALID}" "${CNEGC_BIN}" check examples/invalid_assignment_target.cneg)
 cn_assert_contains("${TMP_INVALID}" "E1006")

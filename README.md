@@ -5,7 +5,7 @@
 
 It is being shaped as a good place to start before jumping into C, C++, or lower-level systems programming directly. The goal is to keep the language explicit and low-level, while making the surface easier to read, reason about, and modify.
 
-Current project status: `v0.4.2-p`
+Current project status: `v0.4.3`
 
 This repository currently ships the `cnegc` compiler with:
 

@@ -20,7 +20,7 @@ static void *cn_ir_grow_items(cn_allocator *allocator, void *items, size_t item_
     }
 
     *capacity = new_capacity;
-    return cn_realloc_impl(allocator, items, item_size * new_capacity, __FILE__, __LINE__);
+    return cn_realloc_mul_impl(allocator, items, item_size, new_capacity, __FILE__, __LINE__);
 }
 
 static cn_ir_type_kind cn_ir_type_kind_from_ast(cn_type_kind kind) {

@@ -122,6 +122,17 @@ if(Python3_Interpreter_FOUND)
 endif()
 
 if(BUILD_TESTING)
+    add_executable(cnegc-memory-runtime tests/memory_runtime_cases.c src/support/memory.c)
+    target_include_directories(cnegc-memory-runtime PRIVATE include)
+    if(MSVC)
+        target_compile_options(cnegc-memory-runtime PRIVATE /W4 /WX)
+    else()
+        target_compile_options(cnegc-memory-runtime PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    set_target_properties(cnegc-memory-runtime PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/build"
+    )
+
     add_test(
         NAME cnegc-check-lines
         COMMAND ${CMAKE_COMMAND}
@@ -136,6 +147,14 @@ if(BUILD_TESTING)
             -DCNEGC_BIN=$<TARGET_FILE:cnegc>
             -DEXE_SUFFIX=${CMAKE_EXECUTABLE_SUFFIX}
             -P ${CMAKE_SOURCE_DIR}/cmake/SmokeTests.cmake
+    )
+
+    add_test(
+        NAME cnegc-memory-runtime
+        COMMAND ${CMAKE_COMMAND}
+            -DROOT_DIR=${CMAKE_SOURCE_DIR}
+            -DMEMORY_RUNTIME_BIN=$<TARGET_FILE:cnegc-memory-runtime>
+            -P ${CMAKE_SOURCE_DIR}/cmake/MemoryRuntimeTests.cmake
     )
 
 endif()

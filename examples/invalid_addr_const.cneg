@@ -1,0 +1,6 @@
+const LIMIT:int = 7;
+
+fn:int main() {
+    addr LIMIT;
+    return 0;
+}

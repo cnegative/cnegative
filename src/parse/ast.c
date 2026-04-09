@@ -21,7 +21,7 @@ static void *cn_grow_items(cn_allocator *allocator, void *items, size_t item_siz
     }
 
     *capacity = new_capacity;
-    return cn_realloc_impl(allocator, items, item_size * new_capacity, __FILE__, __LINE__);
+    return cn_realloc_mul_impl(allocator, items, item_size, new_capacity, __FILE__, __LINE__);
 }
 
 cn_program *cn_program_create(cn_allocator *allocator) {
