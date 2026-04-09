@@ -17,7 +17,13 @@ static const unsigned char g_cn_mem_alloc_poison = 0xcd;
 static const unsigned char g_cn_mem_freed_poison = 0xdd;
 
 static size_t cn_memory_prefix_size(void) {
+#if defined(_MSC_VER) && !defined(__clang__)
+    /* MSVC C mode does not reliably expose max_align_t. Keep the payload
+     * aligned to the host malloc alignment on supported Windows targets. */
+    return sizeof(void *) >= 8 ? 16u : 8u;
+#else
     return sizeof(max_align_t);
+#endif
 }
 
 static size_t cn_memory_tail_size(void) {
