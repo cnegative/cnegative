@@ -1,0 +1,5 @@
+import feature.missing as missing;
+
+fn:int main() {
+    return missing.run();
+}

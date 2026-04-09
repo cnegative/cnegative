@@ -1,0 +1,3 @@
+pfn:int bump(value:int) {
+    return value + 1;
+}

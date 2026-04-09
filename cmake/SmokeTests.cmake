@@ -147,6 +147,7 @@ cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_defer.c
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_defer_loop.cneg)
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_try.cneg)
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_raw_strings.cneg)
+cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/module_roots/main.cneg)
 
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" bench-lexer examples/valid_basic.cneg 5)
 cn_assert_contains("${TMP_VALID}" "tokens_per_second:")
@@ -277,6 +278,11 @@ cn_assert_contains("${TMP_IR}" "while (index < 3) {")
 cn_run_expect_success("${TMP_IR}" "${CNEGC_BIN}" ir examples/valid_try.cneg)
 cn_assert_contains("${TMP_IR}" "let __cn_try_")
 cn_assert_contains("${TMP_IR}" "if !__cn_try_")
+
+cn_run_expect_success("${TMP_IR}" "${CNEGC_BIN}" ir examples/module_roots/main.cneg)
+cn_assert_contains("${TMP_IR}" "fn feature.logic.run() -> int")
+cn_assert_contains("${TMP_IR}" "feature.helper.bump")
+cn_assert_contains("${TMP_IR}" "vendorlib.echo.value")
 
 cn_run_expect_success("${TMP_LL}" "${CNEGC_BIN}" llvm-ir examples/valid_basic.cneg)
 cn_assert_contains("${TMP_LL}" "@cn_valid_basic__main")
@@ -485,6 +491,13 @@ cn_assert_contains("${TMP_INVALID}" "E3012")
 cn_run_expect_failure("${TMP_INVALID}" "${CNEGC_BIN}" check examples/invalid_public_private_type.cneg)
 cn_assert_contains("${TMP_INVALID}" "E3023")
 
+cn_run_expect_failure("${TMP_INVALID}" "${CNEGC_BIN}" check examples/module_roots/missing_main.cneg)
+cn_assert_contains("${TMP_INVALID}" "E3017")
+cn_assert_contains("${TMP_INVALID}" "searched:")
+cn_assert_contains("${TMP_INVALID}" "project root")
+cn_assert_contains("${TMP_INVALID}" "vendor root")
+cn_assert_contains("${TMP_INVALID}" "legacy relative")
+
 cn_run_expect_failure("${TMP_INVALID}" "${CNEGC_BIN}" check examples/invalid_result_value_guard.cneg)
 cn_assert_contains("${TMP_INVALID}" "E3024")
 
@@ -644,3 +657,6 @@ cn_run_binary("${TMP_RUN}" 5 "" "${TMP_BIN}")
 
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" build examples/valid_raw_strings.cneg "${TMP_BIN}")
 cn_run_binary("${TMP_RUN}" 15 "" "${TMP_BIN}")
+
+cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" build examples/module_roots/main.cneg "${TMP_BIN}")
+cn_run_binary("${TMP_RUN}" 26 "" "${TMP_BIN}")

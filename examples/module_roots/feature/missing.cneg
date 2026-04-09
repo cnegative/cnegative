@@ -1,0 +1,5 @@
+import absent;
+
+pfn:int run() {
+    return 0;
+}

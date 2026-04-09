@@ -22,6 +22,8 @@ typedef struct cn_project {
     cn_module **modules;
     size_t module_count;
     size_t module_capacity;
+    char *project_root;
+    char *vendor_root;
     cn_module *root;
 } cn_project;
 

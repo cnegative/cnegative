@@ -5,7 +5,7 @@
 
 It is being built for people who want direct control, visible rules, and a compiler they can inspect end to end. The goal is to keep the language explicit and low-level while making the surface easier to read, reason about, and evolve.
 
-Current project status: `v0.4.3`
+Current project status: `v0.4.4`
 
 This repository currently ships the `cnegc` compiler with:
 

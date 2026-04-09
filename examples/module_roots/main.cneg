@@ -1,0 +1,7 @@
+import feature.logic as logic;
+import shared.helper as shared;
+import vendorlib.echo as echo;
+
+fn:int main() {
+    return logic.run() + shared.delta() + echo.value();
+}

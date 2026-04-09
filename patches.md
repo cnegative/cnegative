@@ -1,5 +1,17 @@
 # Patches
 
+## v0.4.4
+
+- Reworked module loading so imports now resolve through a clear search order:
+  builtin `std.*`, project root, `vendor/` under the project root, then a
+  legacy relative fallback.
+- Added canonical module names derived from root-relative paths, so modules like
+  `feature.helper` and `shared.helper` no longer collapse to the same basename.
+- Improved `E3017` diagnostics to report searched paths and canonical-name
+  conflicts directly.
+- Added regression fixtures and smoke coverage for project-root imports,
+  vendor-root imports, legacy relative fallback, and missing-import diagnostics.
+
 ## v0.4.3
 
 - Added compile-time memory diagnostics for invalid `addr` and `free` misuse:

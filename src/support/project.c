@@ -1376,6 +1376,11 @@ const cn_module *cn_project_find_module_by_name(const cn_project *project, cn_st
     return NULL;
 }
 
+typedef struct cn_import_resolution {
+    char *resolved_path;
+    char *searched_paths;
+} cn_import_resolution;
+
 static bool cn_path_is_separator(char value) {
     return value == '/' || value == '\\';
 }
@@ -1457,7 +1462,54 @@ static char *cn_path_directory(cn_allocator *allocator, const char *path) {
     return CN_STRNDUP(allocator, path, length);
 }
 
-static char *cn_path_module_name(cn_allocator *allocator, const char *path) {
+static size_t cn_path_strip_known_extension_length(const char *path, size_t length) {
+    if (length > 5 && strcmp(path + length - 5, ".cneg") == 0) {
+        return length - 5;
+    }
+
+    if (length > 3 && strcmp(path + length - 3, ".cn") == 0) {
+        return length - 3;
+    }
+
+    return length;
+}
+
+static bool cn_path_relative_to_root(const char *root, const char *path, const char **out_relative) {
+    size_t root_length = strlen(root);
+    while (root_length > 1 && cn_path_is_separator(root[root_length - 1])) {
+        root_length -= 1;
+    }
+
+    if (strncmp(root, path, root_length) != 0) {
+        return false;
+    }
+
+    const char *relative = path + root_length;
+    if (*relative == '\0') {
+        *out_relative = relative;
+        return true;
+    }
+
+    if (!cn_path_is_separator(*relative)) {
+        return false;
+    }
+
+    *out_relative = relative + 1;
+    return true;
+}
+
+static char *cn_path_module_name_from_relative(cn_allocator *allocator, const char *relative_path) {
+    size_t length = cn_path_strip_known_extension_length(relative_path, strlen(relative_path));
+    char *name = CN_STRNDUP(allocator, relative_path, length);
+    for (size_t i = 0; i < length; ++i) {
+        if (cn_path_is_separator(name[i])) {
+            name[i] = '.';
+        }
+    }
+    return name;
+}
+
+static char *cn_path_basename_module_name(cn_allocator *allocator, const char *path) {
     const char *name = cn_path_last_separator(path);
     if (name == NULL) {
         name = path;
@@ -1465,14 +1517,25 @@ static char *cn_path_module_name(cn_allocator *allocator, const char *path) {
         name += 1;
     }
 
-    size_t length = strlen(name);
-    if (length > 5 && strcmp(name + length - 5, ".cneg") == 0) {
-        length -= 5;
-    } else if (length > 3 && strcmp(name + length - 3, ".cn") == 0) {
-        length -= 3;
+    size_t length = cn_path_strip_known_extension_length(name, strlen(name));
+    return CN_STRNDUP(allocator, name, length);
+}
+
+static char *cn_project_module_name_from_path(cn_project *project, const char *path) {
+    const char *relative = NULL;
+    if (project->project_root != NULL &&
+        cn_path_relative_to_root(project->project_root, path, &relative) &&
+        relative[0] != '\0') {
+        return cn_path_module_name_from_relative(project->allocator, relative);
     }
 
-    return CN_STRNDUP(allocator, name, length);
+    if (project->vendor_root != NULL &&
+        cn_path_relative_to_root(project->vendor_root, path, &relative) &&
+        relative[0] != '\0') {
+        return cn_path_module_name_from_relative(project->allocator, relative);
+    }
+
+    return cn_path_basename_module_name(project->allocator, path);
 }
 
 static bool cn_file_exists(const char *path) {
@@ -1485,17 +1548,17 @@ static bool cn_file_exists(const char *path) {
     return true;
 }
 
-static char *cn_path_build_import_path(
+static char *cn_path_build_import_path_from_root(
     cn_allocator *allocator,
-    const cn_module *module,
+    const char *root,
     cn_strview import_name,
     const char *extension
 ) {
     size_t extension_length = strlen(extension);
-    size_t length = strlen(module->directory) + 1 + import_name.length + extension_length + 1;
+    size_t length = strlen(root) + 1 + import_name.length + extension_length + 1;
     char *path = (char *)cn_alloc_impl(allocator, length, __FILE__, __LINE__);
-    snprintf(path, length, "%s%c%.*s%s", module->directory, CN_PATH_SEPARATOR, (int)import_name.length, import_name.data, extension);
-    char *import_start = path + strlen(module->directory) + 1;
+    snprintf(path, length, "%s%c%.*s%s", root, CN_PATH_SEPARATOR, (int)import_name.length, import_name.data, extension);
+    char *import_start = path + strlen(root) + 1;
     for (size_t index = 0; index < import_name.length; ++index) {
         char *cursor = import_start + index;
         if (*cursor == '.') {
@@ -1505,26 +1568,93 @@ static char *cn_path_build_import_path(
     return path;
 }
 
-static char *cn_path_resolve_import(cn_allocator *allocator, const cn_module *module, cn_strview import_name) {
-    char *preferred = cn_path_build_import_path(allocator, module, import_name, ".cneg");
-    if (cn_file_exists(preferred)) {
-        return preferred;
+static char *cn_path_join_component(cn_allocator *allocator, const char *base, const char *component) {
+    size_t length = strlen(base) + 1 + strlen(component) + 1;
+    char *path = (char *)cn_alloc_impl(allocator, length, __FILE__, __LINE__);
+    snprintf(path, length, "%s%c%s", base, CN_PATH_SEPARATOR, component);
+    return path;
+}
+
+static void cn_import_resolution_add_attempt(
+    cn_allocator *allocator,
+    cn_import_resolution *resolution,
+    const char *label,
+    const char *path
+) {
+    size_t old_length = resolution->searched_paths != NULL ? strlen(resolution->searched_paths) : 0;
+    size_t extra_length = strlen("  - ") + strlen(label) + strlen(": ") + strlen(path) + strlen("\n") + 1;
+    char *buffer = resolution->searched_paths == NULL
+        ? (char *)cn_alloc_impl(allocator, extra_length, __FILE__, __LINE__)
+        : (char *)cn_realloc_impl(allocator, resolution->searched_paths, old_length + extra_length, __FILE__, __LINE__);
+    snprintf(buffer + old_length, extra_length, "  - %s: %s\n", label, path);
+    resolution->searched_paths = buffer;
+}
+
+static void cn_import_resolution_try_root(
+    cn_allocator *allocator,
+    cn_import_resolution *resolution,
+    const char *label,
+    const char *root,
+    cn_strview import_name
+) {
+    char *preferred = cn_path_build_import_path_from_root(allocator, root, import_name, ".cneg");
+    cn_import_resolution_add_attempt(allocator, resolution, label, preferred);
+    if (resolution->resolved_path == NULL && cn_file_exists(preferred)) {
+        resolution->resolved_path = preferred;
+        return;
     }
 
-    char *legacy = cn_path_build_import_path(allocator, module, import_name, ".cn");
-    if (cn_file_exists(legacy)) {
-        CN_FREE(allocator, preferred);
-        return legacy;
+    CN_FREE(allocator, preferred);
+
+    char *legacy = cn_path_build_import_path_from_root(allocator, root, import_name, ".cn");
+    cn_import_resolution_add_attempt(allocator, resolution, label, legacy);
+    if (resolution->resolved_path == NULL && cn_file_exists(legacy)) {
+        resolution->resolved_path = legacy;
+        return;
     }
 
     CN_FREE(allocator, legacy);
-    return preferred;
 }
 
-static cn_module *cn_module_create(cn_allocator *allocator, const char *resolved_path) {
+static cn_import_resolution cn_path_resolve_import(
+    cn_allocator *allocator,
+    const cn_project *project,
+    const cn_module *module,
+    cn_strview import_name
+) {
+    cn_import_resolution resolution;
+    resolution.resolved_path = NULL;
+    resolution.searched_paths = NULL;
+
+    if (project->project_root != NULL) {
+        cn_import_resolution_try_root(allocator, &resolution, "project root", project->project_root, import_name);
+        if (resolution.resolved_path != NULL) {
+            return resolution;
+        }
+    }
+
+    if (project->vendor_root != NULL) {
+        cn_import_resolution_try_root(allocator, &resolution, "vendor root", project->vendor_root, import_name);
+        if (resolution.resolved_path != NULL) {
+            return resolution;
+        }
+    }
+
+    if (module != NULL &&
+        module->directory != NULL &&
+        (project->project_root == NULL || strcmp(module->directory, project->project_root) != 0) &&
+        (project->vendor_root == NULL || strcmp(module->directory, project->vendor_root) != 0)) {
+        cn_import_resolution_try_root(allocator, &resolution, "legacy relative", module->directory, import_name);
+    }
+
+    return resolution;
+}
+
+static cn_module *cn_module_create(cn_project *project, const char *resolved_path) {
+    cn_allocator *allocator = project->allocator;
     cn_module *module = CN_ALLOC(allocator, cn_module);
     module->is_builtin_stdlib = false;
-    module->name = cn_path_module_name(allocator, resolved_path);
+    module->name = cn_project_module_name_from_path(project, resolved_path);
     module->path = CN_STRDUP(allocator, resolved_path);
     module->directory = cn_path_directory(allocator, resolved_path);
     module->source.path = NULL;
@@ -1611,7 +1741,29 @@ static cn_module *cn_project_load_module(
         return existing;
     }
 
-    cn_module *module = cn_module_create(project->allocator, resolved_path);
+    cn_module *module = cn_module_create(project, resolved_path);
+    const cn_module *conflict = cn_project_find_module_by_name(project, cn_sv_from_cstr(module->name));
+    if (conflict != NULL) {
+        cn_diag_bag_set_source(diagnostics, import_source);
+        cn_diag_emit(
+            diagnostics,
+            CN_DIAG_ERROR,
+            "E3017",
+            import_offset,
+            "module '%s' resolves to '%s', but canonical module name '%s' is already used by '%s'",
+            path,
+            resolved_path,
+            module->name,
+            conflict->path
+        );
+        CN_FREE(project->allocator, resolved_path);
+        CN_FREE(project->allocator, module->name);
+        CN_FREE(project->allocator, module->path);
+        CN_FREE(project->allocator, module->directory);
+        CN_FREE(project->allocator, module);
+        return NULL;
+    }
+
     CN_FREE(project->allocator, resolved_path);
     module->loading = true;
     cn_project_push_module(project, module);
@@ -1660,15 +1812,34 @@ static cn_module *cn_project_load_module(
                 continue;
             }
 
-            char *child_path = cn_path_resolve_import(project->allocator, module, module->program->imports[i].module_name);
+            cn_import_resolution resolution =
+                cn_path_resolve_import(project->allocator, project, module, module->program->imports[i].module_name);
+
+            if (resolution.resolved_path == NULL) {
+                cn_diag_bag_set_source(diagnostics, &module->source);
+                cn_diag_emit(
+                    diagnostics,
+                    CN_DIAG_ERROR,
+                    "E3017",
+                    module->program->imports[i].offset,
+                    "could not resolve import '%.*s'\nsearched:\n%s",
+                    (int)module->program->imports[i].module_name.length,
+                    module->program->imports[i].module_name.data,
+                    resolution.searched_paths != NULL ? resolution.searched_paths : "  - <no search roots>\n"
+                );
+                CN_FREE(project->allocator, resolution.searched_paths);
+                continue;
+            }
+
             module->imports[i] = cn_project_load_module(
                 project,
-                child_path,
+                resolution.resolved_path,
                 diagnostics,
                 &module->source,
                 module->program->imports[i].offset
             );
-            CN_FREE(project->allocator, child_path);
+            CN_FREE(project->allocator, resolution.resolved_path);
+            CN_FREE(project->allocator, resolution.searched_paths);
         }
     }
 
@@ -1682,7 +1853,26 @@ cn_project *cn_project_load(cn_allocator *allocator, const char *entry_path, cn_
     project->modules = NULL;
     project->module_count = 0;
     project->module_capacity = 0;
+    project->project_root = NULL;
+    project->vendor_root = NULL;
     project->root = NULL;
+
+    char *absolute_entry_path = cn_make_absolute_path(allocator, entry_path);
+    if (absolute_entry_path == NULL) {
+        cn_diag_emit(
+            diagnostics,
+            CN_DIAG_ERROR,
+            "E3017",
+            0,
+            "could not resolve entry path '%s'",
+            entry_path
+        );
+        return project;
+    }
+
+    project->project_root = cn_path_directory(allocator, absolute_entry_path);
+    project->vendor_root = cn_path_join_component(allocator, project->project_root, "vendor");
+    CN_FREE(allocator, absolute_entry_path);
 
     project->root = cn_project_load_module(project, entry_path, diagnostics, NULL, 0);
     return project;
@@ -1709,5 +1899,7 @@ void cn_project_destroy(cn_allocator *allocator, cn_project *project) {
     }
 
     CN_FREE(allocator, project->modules);
+    CN_FREE(allocator, project->project_root);
+    CN_FREE(allocator, project->vendor_root);
     CN_FREE(allocator, project);
 }

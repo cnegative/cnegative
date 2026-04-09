@@ -145,7 +145,7 @@ fn:int add(a:int, b:int) {
 
 ### Modules
 
-Current local module rule:
+Current module rule:
 
 ```lang
 import math as m;
@@ -155,7 +155,16 @@ fn:int main() {
 }
 ```
 
-`import name;` resolves `name.cneg` relative to the importing file. Only `pfn` functions are callable from another module. The loader still accepts legacy `.cn` imports during the transition.
+`import name;` and dotted imports like `import app.logic;` resolve in this order:
+
+1. builtin `std.*` modules
+2. the project root, which is the directory containing the entry file
+3. `vendor/` under that project root
+4. a legacy fallback relative to the importing file's directory
+
+Project and vendor modules get canonical names from their path relative to those roots, so `feature/helper.cneg` becomes `feature.helper` and `vendor/vendorlib/echo.cneg` becomes `vendorlib.echo`. The loader still accepts legacy `.cn` imports during the transition.
+
+Only `pfn` functions are callable from another module.
 
 The initial standard library is imported through builtin modules using the same surface syntax:
 

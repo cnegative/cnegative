@@ -1,0 +1,6 @@
+import helper;
+import math.core as core;
+
+pfn:int run() {
+    return helper.bump(core.base());
+}

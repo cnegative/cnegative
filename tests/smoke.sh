@@ -76,6 +76,7 @@ cn_verify_llvm_ir() {
 ./build/cnegc check examples/valid_defer_loop.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_try.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_raw_strings.cneg >"$tmp_valid"
+./build/cnegc check examples/module_roots/main.cneg >"$tmp_valid"
 
 ./build/cnegc bench-lexer examples/valid_basic.cneg 5 >"$tmp_valid"
 if ! grep -q 'tokens_per_second:' "$tmp_valid"; then
@@ -524,6 +525,23 @@ if ! grep -q 'let __cn_try_' "$tmp_ir"; then
 fi
 if ! grep -q 'if !__cn_try_' "$tmp_ir"; then
     printf 'expected try lowering to branch on .ok in typed IR for valid_try.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+
+./build/cnegc ir examples/module_roots/main.cneg >"$tmp_ir"
+if ! grep -q 'fn feature.logic.run() -> int' "$tmp_ir"; then
+    printf 'expected canonical project-root module naming in typed IR for module_roots/main.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'feature.helper.bump' "$tmp_ir"; then
+    printf 'expected legacy relative import to resolve to canonical feature.helper in typed IR\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'vendorlib.echo.value' "$tmp_ir"; then
+    printf 'expected vendor-root import to resolve to vendorlib.echo in typed IR\n'
     cat "$tmp_ir"
     exit 1
 fi
@@ -1187,6 +1205,41 @@ if ! grep -q 'E3023' "$tmp_invalid"; then
     exit 1
 fi
 
+if ./build/cnegc check examples/module_roots/missing_main.cneg >"$tmp_invalid" 2>&1; then
+    printf 'expected module_roots/missing_main.cneg to fail\n'
+    exit 1
+fi
+
+if ! grep -q 'E3017' "$tmp_invalid"; then
+    printf 'expected E3017 in module_roots/missing_main.cneg output\n'
+    cat "$tmp_invalid"
+    exit 1
+fi
+
+if ! grep -q 'searched:' "$tmp_invalid"; then
+    printf 'expected searched-path diagnostics in module_roots/missing_main.cneg output\n'
+    cat "$tmp_invalid"
+    exit 1
+fi
+
+if ! grep -q 'project root' "$tmp_invalid"; then
+    printf 'expected project-root search path in module_roots/missing_main.cneg output\n'
+    cat "$tmp_invalid"
+    exit 1
+fi
+
+if ! grep -q 'vendor root' "$tmp_invalid"; then
+    printf 'expected vendor-root search path in module_roots/missing_main.cneg output\n'
+    cat "$tmp_invalid"
+    exit 1
+fi
+
+if ! grep -q 'legacy relative' "$tmp_invalid"; then
+    printf 'expected legacy-relative search path in module_roots/missing_main.cneg output\n'
+    cat "$tmp_invalid"
+    exit 1
+fi
+
 if ./build/cnegc check examples/invalid_result_value_guard.cneg >"$tmp_invalid" 2>&1; then
     printf 'expected invalid_result_value_guard.cneg to fail\n'
     exit 1
@@ -1658,6 +1711,17 @@ status=$?
 set -e
 if [ "$status" -ne 15 ]; then
     printf 'expected valid_raw_strings binary to exit 15, got %d\n' "$status"
+    cat "$tmp_run"
+    exit 1
+fi
+
+./build/cnegc build examples/module_roots/main.cneg "$tmp_bin" >"$tmp_valid"
+set +e
+"$tmp_bin" >"$tmp_run"
+status=$?
+set -e
+if [ "$status" -ne 26 ]; then
+    printf 'expected module_roots/main.cneg binary to exit 26, got %d\n' "$status"
     cat "$tmp_run"
     exit 1
 fi
