@@ -1,0 +1,32 @@
+import std.strings as strings;
+import std.text as text;
+
+fn:result int run() {
+    try builder = text.new();
+    defer text.release(builder);
+
+    let mut index:int = 0;
+    while index < 3 {
+        if text.append(builder, "a").ok == false {
+            return err;
+        }
+        index = index + 1;
+    }
+
+    try built = text.build(builder);
+    defer free built;
+
+    if strings.eq(built, "aaa") == false {
+        return err;
+    }
+
+    return ok 0;
+}
+
+fn:int main() {
+    let outcome:result int = run();
+    if outcome.ok == false {
+        return 1;
+    }
+    return outcome.value;
+}

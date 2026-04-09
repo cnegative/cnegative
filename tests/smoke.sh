@@ -73,6 +73,7 @@ cn_verify_llvm_ir() {
 ./build/cnegc check examples/valid_stdlib_lines.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_if_expr.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_defer.cneg >"$tmp_valid"
+./build/cnegc check examples/valid_defer_loop.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_try.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_raw_strings.cneg >"$tmp_valid"
 
@@ -499,6 +500,18 @@ if ! grep -q 'print("cleanup");' "$tmp_ir"; then
 fi
 if ! grep -q 'if (value < 0) {' "$tmp_ir"; then
     printf 'expected early-return branch in typed IR for valid_defer.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+
+./build/cnegc ir examples/valid_defer_loop.cneg >"$tmp_ir"
+if ! grep -q 'fn valid_defer_loop.run() -> result int' "$tmp_ir"; then
+    printf 'expected typed IR function signature for valid_defer_loop.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'while (index < 3) {' "$tmp_ir"; then
+    printf 'expected loop body to remain present in typed IR for valid_defer_loop.cneg\n'
     cat "$tmp_ir"
     exit 1
 fi
@@ -1568,6 +1581,17 @@ if [ "$status" -ne 0 ]; then
 fi
 if ! grep -q '^cleanup$' "$tmp_run"; then
     printf 'expected valid_defer binary to print deferred cleanup output\n'
+    cat "$tmp_run"
+    exit 1
+fi
+
+./build/cnegc build examples/valid_defer_loop.cneg "$tmp_bin" >"$tmp_valid"
+set +e
+"$tmp_bin" >"$tmp_run"
+status=$?
+set -e
+if [ "$status" -ne 0 ]; then
+    printf 'expected valid_defer_loop binary to exit 0, got %d\n' "$status"
     cat "$tmp_run"
     exit 1
 fi

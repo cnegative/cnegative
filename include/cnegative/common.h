@@ -41,4 +41,13 @@ static inline bool cn_sv_eq_cstr(cn_strview left, const char *right) {
     return cn_sv_eq(left, cn_sv_from_cstr(right));
 }
 
+static inline uint64_t cn_sv_hash(cn_strview value) {
+    uint64_t hash = 1469598103934665603ull;
+    for (size_t i = 0; i < value.length; ++i) {
+        hash ^= (unsigned char)value.data[i];
+        hash *= 1099511628211ull;
+    }
+    return hash;
+}
+
 #endif

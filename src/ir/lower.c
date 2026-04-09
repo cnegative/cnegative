@@ -1088,6 +1088,26 @@ static cn_ir_expr *cn_ir_lower_expression(cn_ir_lower_ctx *ctx, cn_ir_scope *sco
     return NULL;
 }
 
+static void cn_ir_emit_local_deferred_entries(
+    cn_ir_lower_ctx *ctx,
+    cn_ir_block *ir_block,
+    const cn_ir_defer_frame *frame,
+    const cn_ir_type *function_return_type
+) {
+    for (const cn_ir_defer_entry *entry = frame->entries; entry != NULL; entry = entry->next) {
+        cn_ir_stmt *statement = cn_ir_lower_statement(
+            ctx,
+            entry->captured_scope,
+            entry->statement,
+            function_return_type,
+            NULL
+        );
+        if (statement != NULL) {
+            cn_ir_stmt_list_push(ctx->allocator, &ir_block->statements, statement);
+        }
+    }
+}
+
 static void cn_ir_emit_deferred_entries(
     cn_ir_lower_ctx *ctx,
     cn_ir_block *ir_block,
@@ -1095,18 +1115,7 @@ static void cn_ir_emit_deferred_entries(
     const cn_ir_type *function_return_type
 ) {
     for (const cn_ir_defer_frame *cursor = frame; cursor != NULL; cursor = cursor->parent) {
-        for (const cn_ir_defer_entry *entry = cursor->entries; entry != NULL; entry = entry->next) {
-            cn_ir_stmt *statement = cn_ir_lower_statement(
-                ctx,
-                entry->captured_scope,
-                entry->statement,
-                function_return_type,
-                NULL
-            );
-            if (statement != NULL) {
-                cn_ir_stmt_list_push(ctx->allocator, &ir_block->statements, statement);
-            }
-        }
+        cn_ir_emit_local_deferred_entries(ctx, ir_block, cursor, function_return_type);
     }
 }
 
@@ -1406,7 +1415,7 @@ static cn_ir_block *cn_ir_lower_block(
     }
 
     if (!terminated) {
-        cn_ir_emit_deferred_entries(ctx, ir_block, &defer_frame, function_return_type);
+        cn_ir_emit_local_deferred_entries(ctx, ir_block, &defer_frame, function_return_type);
     }
     cn_ir_release_defer_frame(ctx, &defer_frame);
 

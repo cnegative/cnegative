@@ -9,6 +9,19 @@ typedef struct cn_binding {
     struct cn_binding *next;
 } cn_binding;
 
+typedef struct cn_name_map_entry {
+    cn_strview key;
+    const void *value;
+    size_t index;
+    bool occupied;
+} cn_name_map_entry;
+
+typedef struct cn_name_map {
+    cn_name_map_entry *entries;
+    size_t capacity;
+    size_t count;
+} cn_name_map;
+
 typedef struct cn_result_guard {
     cn_strview name;
     struct cn_result_guard *next;
@@ -16,7 +29,9 @@ typedef struct cn_result_guard {
 
 typedef struct cn_scope {
     cn_binding *bindings;
+    cn_name_map binding_map;
     cn_result_guard *result_guards;
+    cn_name_map result_guard_map;
     struct cn_scope *parent;
 } cn_scope;
 
@@ -35,6 +50,18 @@ typedef struct cn_resolved_const {
     const cn_const_decl *decl;
 } cn_resolved_const;
 
+typedef struct cn_module_symbol_cache {
+    const cn_module *module;
+    cn_name_map local_functions;
+    cn_name_map public_functions;
+    cn_name_map local_consts;
+    cn_name_map public_consts;
+    cn_name_map local_structs;
+    cn_name_map public_structs;
+    cn_name_map imports;
+    struct cn_module_symbol_cache *next;
+} cn_module_symbol_cache;
+
 typedef struct cn_sema_ctx {
     const cn_project *project;
     const cn_module *module;
@@ -42,6 +69,7 @@ typedef struct cn_sema_ctx {
     cn_allocator *allocator;
     const cn_function *current_function;
     cn_temp_type *temp_types;
+    cn_module_symbol_cache *module_caches;
 } cn_sema_ctx;
 
 typedef struct cn_assignment_target {
@@ -72,68 +100,228 @@ static bool cn_name_eq(cn_strview left, cn_strview right) {
     return cn_sv_eq(left, right);
 }
 
-static const cn_function *cn_find_local_function(const cn_module *module, cn_strview name) {
+static size_t cn_name_map_next_capacity(size_t required) {
+    size_t capacity = 16;
+    while (capacity < required) {
+        capacity *= 2;
+    }
+    return capacity;
+}
+
+static cn_name_map_entry *cn_name_map_find_slot(cn_name_map_entry *entries, size_t capacity, cn_strview key) {
+    size_t mask = capacity - 1;
+    size_t index = (size_t)(cn_sv_hash(key) & (uint64_t)mask);
+    while (entries[index].occupied && !cn_name_eq(entries[index].key, key)) {
+        index = (index + 1) & mask;
+    }
+    return &entries[index];
+}
+
+static bool cn_name_map_reserve(cn_sema_ctx *ctx, cn_name_map *map, size_t required) {
+    if (map->capacity >= required) {
+        return true;
+    }
+
+    size_t new_capacity = cn_name_map_next_capacity(required);
+    cn_name_map_entry *new_entries = CN_CALLOC(ctx->allocator, cn_name_map_entry, new_capacity);
+    if (new_entries == NULL) {
+        return false;
+    }
+
+    for (size_t i = 0; i < map->capacity; ++i) {
+        if (!map->entries[i].occupied) {
+            continue;
+        }
+
+        cn_name_map_entry *slot = cn_name_map_find_slot(new_entries, new_capacity, map->entries[i].key);
+        *slot = map->entries[i];
+    }
+
+    CN_FREE(ctx->allocator, map->entries);
+    map->entries = new_entries;
+    map->capacity = new_capacity;
+    return true;
+}
+
+static bool cn_name_map_insert(
+    cn_sema_ctx *ctx,
+    cn_name_map *map,
+    cn_strview key,
+    const void *value,
+    size_t index,
+    bool replace
+) {
+    size_t required_capacity = map->capacity == 0 ? 16 : map->capacity;
+    if ((map->count + 1) * 10 >= required_capacity * 7) {
+        required_capacity *= 2;
+    }
+
+    if (!cn_name_map_reserve(ctx, map, required_capacity)) {
+        return false;
+    }
+
+    cn_name_map_entry *slot = cn_name_map_find_slot(map->entries, map->capacity, key);
+    if (slot->occupied && !replace) {
+        return false;
+    }
+
+    if (!slot->occupied) {
+        map->count += 1;
+        slot->occupied = true;
+        slot->key = key;
+    }
+
+    slot->value = value;
+    slot->index = index;
+    return true;
+}
+
+static const cn_name_map_entry *cn_name_map_lookup_entry(const cn_name_map *map, cn_strview key) {
+    if (map->capacity == 0) {
+        return NULL;
+    }
+
+    size_t mask = map->capacity - 1;
+    size_t index = (size_t)(cn_sv_hash(key) & (uint64_t)mask);
+    while (map->entries[index].occupied) {
+        if (cn_name_eq(map->entries[index].key, key)) {
+            return &map->entries[index];
+        }
+
+        index = (index + 1) & mask;
+    }
+
+    return NULL;
+}
+
+static const void *cn_name_map_lookup_value(const cn_name_map *map, cn_strview key) {
+    const cn_name_map_entry *entry = cn_name_map_lookup_entry(map, key);
+    return entry == NULL ? NULL : entry->value;
+}
+
+static bool cn_name_map_lookup_index(const cn_name_map *map, cn_strview key, size_t *out_index) {
+    const cn_name_map_entry *entry = cn_name_map_lookup_entry(map, key);
+    if (entry == NULL) {
+        return false;
+    }
+    if (out_index != NULL) {
+        *out_index = entry->index;
+    }
+    return true;
+}
+
+static void cn_name_map_release(cn_sema_ctx *ctx, cn_name_map *map) {
+    CN_FREE(ctx->allocator, map->entries);
+    map->entries = NULL;
+    map->capacity = 0;
+    map->count = 0;
+}
+
+static cn_module_symbol_cache *cn_get_module_symbol_cache(cn_sema_ctx *ctx, const cn_module *module) {
+    for (cn_module_symbol_cache *cache = ctx->module_caches; cache != NULL; cache = cache->next) {
+        if (cache->module == module) {
+            return cache;
+        }
+    }
+
+    cn_module_symbol_cache *cache = CN_ALLOC(ctx->allocator, cn_module_symbol_cache);
+    memset(cache, 0, sizeof(*cache));
+    cache->module = module;
+    cache->next = ctx->module_caches;
+    ctx->module_caches = cache;
+
+    if (module == NULL || module->program == NULL) {
+        return cache;
+    }
+
     for (size_t i = 0; i < module->program->function_count; ++i) {
-        if (cn_name_eq(module->program->functions[i]->name, name)) {
-            return module->program->functions[i];
+        cn_function *function = module->program->functions[i];
+        cn_name_map_insert(ctx, &cache->local_functions, function->name, function, 0, true);
+        if (function->is_public) {
+            cn_name_map_insert(ctx, &cache->public_functions, function->name, function, 0, true);
         }
     }
-    return NULL;
-}
 
-static const cn_function *cn_find_public_function(const cn_module *module, cn_strview name) {
-    for (size_t i = 0; i < module->program->function_count; ++i) {
-        if (module->program->functions[i]->is_public && cn_name_eq(module->program->functions[i]->name, name)) {
-            return module->program->functions[i];
-        }
-    }
-    return NULL;
-}
-
-static const cn_const_decl *cn_find_const(const cn_module *module, cn_strview name) {
     for (size_t i = 0; i < module->program->const_count; ++i) {
-        if (cn_name_eq(module->program->consts[i]->name, name)) {
-            return module->program->consts[i];
+        cn_const_decl *const_decl = module->program->consts[i];
+        cn_name_map_insert(ctx, &cache->local_consts, const_decl->name, const_decl, 0, true);
+        if (const_decl->is_public) {
+            cn_name_map_insert(ctx, &cache->public_consts, const_decl->name, const_decl, 0, true);
         }
     }
-    return NULL;
-}
 
-static const cn_const_decl *cn_find_public_const(const cn_module *module, cn_strview name) {
-    for (size_t i = 0; i < module->program->const_count; ++i) {
-        if (module->program->consts[i]->is_public && cn_name_eq(module->program->consts[i]->name, name)) {
-            return module->program->consts[i];
-        }
-    }
-    return NULL;
-}
-
-static const cn_struct_decl *cn_find_struct(const cn_module *module, cn_strview name) {
     for (size_t i = 0; i < module->program->struct_count; ++i) {
-        if (cn_name_eq(module->program->structs[i]->name, name)) {
-            return module->program->structs[i];
+        cn_struct_decl *struct_decl = module->program->structs[i];
+        cn_name_map_insert(ctx, &cache->local_structs, struct_decl->name, struct_decl, 0, true);
+        if (struct_decl->is_public) {
+            cn_name_map_insert(ctx, &cache->public_structs, struct_decl->name, struct_decl, 0, true);
         }
     }
-    return NULL;
-}
 
-static const cn_struct_decl *cn_find_public_struct(const cn_module *module, cn_strview name) {
-    for (size_t i = 0; i < module->program->struct_count; ++i) {
-        if (module->program->structs[i]->is_public && cn_name_eq(module->program->structs[i]->name, name)) {
-            return module->program->structs[i];
-        }
+    for (size_t i = 0; i < module->program->import_count; ++i) {
+        cn_import_decl *import_decl = &module->program->imports[i];
+        cn_name_map_insert(ctx, &cache->imports, import_decl->module_name, NULL, i, true);
+        cn_name_map_insert(ctx, &cache->imports, import_decl->alias, NULL, i, true);
     }
-    return NULL;
+
+    return cache;
 }
 
-static const cn_module *cn_find_imported_module(const cn_module *module, cn_strview name);
+static void cn_release_module_symbol_caches(cn_sema_ctx *ctx) {
+    cn_module_symbol_cache *cache = ctx->module_caches;
+    while (cache != NULL) {
+        cn_module_symbol_cache *next = cache->next;
+        cn_name_map_release(ctx, &cache->local_functions);
+        cn_name_map_release(ctx, &cache->public_functions);
+        cn_name_map_release(ctx, &cache->local_consts);
+        cn_name_map_release(ctx, &cache->public_consts);
+        cn_name_map_release(ctx, &cache->local_structs);
+        cn_name_map_release(ctx, &cache->public_structs);
+        cn_name_map_release(ctx, &cache->imports);
+        CN_FREE(ctx->allocator, cache);
+        cache = next;
+    }
+    ctx->module_caches = NULL;
+}
+
+static const cn_function *cn_find_local_function(cn_sema_ctx *ctx, const cn_module *module, cn_strview name) {
+    cn_module_symbol_cache *cache = cn_get_module_symbol_cache(ctx, module);
+    return (const cn_function *)cn_name_map_lookup_value(&cache->local_functions, name);
+}
+
+static const cn_function *cn_find_public_function(cn_sema_ctx *ctx, const cn_module *module, cn_strview name) {
+    cn_module_symbol_cache *cache = cn_get_module_symbol_cache(ctx, module);
+    return (const cn_function *)cn_name_map_lookup_value(&cache->public_functions, name);
+}
+
+static const cn_const_decl *cn_find_const(cn_sema_ctx *ctx, const cn_module *module, cn_strview name) {
+    cn_module_symbol_cache *cache = cn_get_module_symbol_cache(ctx, module);
+    return (const cn_const_decl *)cn_name_map_lookup_value(&cache->local_consts, name);
+}
+
+static const cn_const_decl *cn_find_public_const(cn_sema_ctx *ctx, const cn_module *module, cn_strview name) {
+    cn_module_symbol_cache *cache = cn_get_module_symbol_cache(ctx, module);
+    return (const cn_const_decl *)cn_name_map_lookup_value(&cache->public_consts, name);
+}
+
+static const cn_struct_decl *cn_find_struct(cn_sema_ctx *ctx, const cn_module *module, cn_strview name) {
+    cn_module_symbol_cache *cache = cn_get_module_symbol_cache(ctx, module);
+    return (const cn_struct_decl *)cn_name_map_lookup_value(&cache->local_structs, name);
+}
+
+static const cn_struct_decl *cn_find_public_struct(cn_sema_ctx *ctx, const cn_module *module, cn_strview name) {
+    cn_module_symbol_cache *cache = cn_get_module_symbol_cache(ctx, module);
+    return (const cn_struct_decl *)cn_name_map_lookup_value(&cache->public_structs, name);
+}
+
+static const cn_module *cn_find_imported_module(cn_sema_ctx *ctx, const cn_module *module, cn_strview name);
 
 static const cn_module *cn_resolve_source_named_module(cn_sema_ctx *ctx, cn_strview module_name) {
     if (module_name.length == 0 || cn_sv_eq_cstr(module_name, ctx->module->name)) {
         return ctx->module;
     }
 
-    return cn_find_imported_module(ctx->module, module_name);
+    return cn_find_imported_module(ctx, ctx->module, module_name);
 }
 
 static const cn_module *cn_resolve_canonical_named_module(cn_sema_ctx *ctx, cn_strview module_name) {
@@ -146,10 +334,10 @@ static const cn_module *cn_resolve_canonical_named_module(cn_sema_ctx *ctx, cn_s
         return project_module;
     }
 
-    return cn_find_imported_module(ctx->module, module_name);
+    return cn_find_imported_module(ctx, ctx->module, module_name);
 }
 
-static cn_resolved_const cn_resolve_const_in_module(const cn_module *module, cn_strview const_name) {
+static cn_resolved_const cn_resolve_const_in_module(cn_sema_ctx *ctx, const cn_module *module, cn_strview const_name) {
     cn_resolved_const result;
     result.module = NULL;
     result.decl = NULL;
@@ -159,7 +347,7 @@ static cn_resolved_const cn_resolve_const_in_module(const cn_module *module, cn_
     }
 
     result.module = module;
-    result.decl = cn_find_const(module, const_name);
+    result.decl = cn_find_const(ctx, module, const_name);
     if (result.decl == NULL) {
         result.module = NULL;
     }
@@ -169,23 +357,23 @@ static cn_resolved_const cn_resolve_const_in_module(const cn_module *module, cn_
 static cn_resolved_const cn_resolve_source_named_const(cn_sema_ctx *ctx, cn_strview module_name, cn_strview const_name) {
     const cn_module *module = cn_resolve_source_named_module(ctx, module_name);
     if (module == NULL) {
-        return cn_resolve_const_in_module(NULL, const_name);
+        return cn_resolve_const_in_module(ctx, NULL, const_name);
     }
 
     if (module == ctx->module) {
-        return cn_resolve_const_in_module(module, const_name);
+        return cn_resolve_const_in_module(ctx, module, const_name);
     }
 
     cn_resolved_const result;
     result.module = module;
-    result.decl = cn_find_public_const(module, const_name);
+    result.decl = cn_find_public_const(ctx, module, const_name);
     if (result.decl == NULL) {
         result.module = NULL;
     }
     return result;
 }
 
-static cn_resolved_struct cn_resolve_struct_in_module(const cn_module *module, cn_strview type_name) {
+static cn_resolved_struct cn_resolve_struct_in_module(cn_sema_ctx *ctx, const cn_module *module, cn_strview type_name) {
     cn_resolved_struct result;
     result.module = NULL;
     result.decl = NULL;
@@ -195,7 +383,7 @@ static cn_resolved_struct cn_resolve_struct_in_module(const cn_module *module, c
     }
 
     result.module = module;
-    result.decl = cn_find_struct(module, type_name);
+    result.decl = cn_find_struct(ctx, module, type_name);
     if (result.decl == NULL) {
         result.module = NULL;
     }
@@ -205,16 +393,16 @@ static cn_resolved_struct cn_resolve_struct_in_module(const cn_module *module, c
 static cn_resolved_struct cn_resolve_source_named_struct(cn_sema_ctx *ctx, cn_strview module_name, cn_strview type_name) {
     const cn_module *module = cn_resolve_source_named_module(ctx, module_name);
     if (module == NULL) {
-        return cn_resolve_struct_in_module(NULL, type_name);
+        return cn_resolve_struct_in_module(ctx, NULL, type_name);
     }
 
     if (module == ctx->module) {
-        return cn_resolve_struct_in_module(module, type_name);
+        return cn_resolve_struct_in_module(ctx, module, type_name);
     }
 
     cn_resolved_struct result;
     result.module = module;
-    result.decl = cn_find_public_struct(module, type_name);
+    result.decl = cn_find_public_struct(ctx, module, type_name);
     if (result.decl == NULL) {
         result.module = NULL;
     }
@@ -222,24 +410,29 @@ static cn_resolved_struct cn_resolve_source_named_struct(cn_sema_ctx *ctx, cn_st
 }
 
 static cn_resolved_struct cn_resolve_canonical_named_struct(cn_sema_ctx *ctx, cn_strview module_name, cn_strview type_name) {
-    return cn_resolve_struct_in_module(cn_resolve_canonical_named_module(ctx, module_name), type_name);
+    return cn_resolve_struct_in_module(ctx, cn_resolve_canonical_named_module(ctx, module_name), type_name);
 }
 
-static const cn_import_decl *cn_find_import_decl(const cn_module *module, cn_strview name, size_t *out_index) {
-    for (size_t i = 0; i < module->program->import_count; ++i) {
-        if (cn_name_eq(module->program->imports[i].alias, name) || cn_name_eq(module->program->imports[i].module_name, name)) {
-            if (out_index != NULL) {
-                *out_index = i;
-            }
-            return &module->program->imports[i];
-        }
+static const cn_import_decl *cn_find_import_decl(cn_sema_ctx *ctx, const cn_module *module, cn_strview name, size_t *out_index) {
+    if (module == NULL || module->program == NULL) {
+        return NULL;
     }
-    return NULL;
+
+    cn_module_symbol_cache *cache = cn_get_module_symbol_cache(ctx, module);
+    size_t index = 0;
+    if (!cn_name_map_lookup_index(&cache->imports, name, &index)) {
+        return NULL;
+    }
+
+    if (out_index != NULL) {
+        *out_index = index;
+    }
+    return &module->program->imports[index];
 }
 
-static const cn_module *cn_find_imported_module(const cn_module *module, cn_strview name) {
+static const cn_module *cn_find_imported_module(cn_sema_ctx *ctx, const cn_module *module, cn_strview name) {
     size_t index = 0;
-    if (cn_find_import_decl(module, name, &index) == NULL) {
+    if (cn_find_import_decl(ctx, module, name, &index) == NULL) {
         return NULL;
     }
 
@@ -264,10 +457,9 @@ static const cn_struct_field *cn_find_struct_field(const cn_struct_decl *struct_
 
 static const cn_binding *cn_scope_lookup(const cn_scope *scope, cn_strview name) {
     for (const cn_scope *cursor = scope; cursor != NULL; cursor = cursor->parent) {
-        for (const cn_binding *binding = cursor->bindings; binding != NULL; binding = binding->next) {
-            if (cn_name_eq(binding->name, name)) {
-                return binding;
-            }
+        const cn_binding *binding = (const cn_binding *)cn_name_map_lookup_value(&cursor->binding_map, name);
+        if (binding != NULL) {
+            return binding;
         }
     }
     return NULL;
@@ -275,42 +467,37 @@ static const cn_binding *cn_scope_lookup(const cn_scope *scope, cn_strview name)
 
 static bool cn_scope_result_is_ok(const cn_scope *scope, cn_strview name) {
     for (const cn_scope *cursor = scope; cursor != NULL; cursor = cursor->parent) {
-        for (const cn_result_guard *guard = cursor->result_guards; guard != NULL; guard = guard->next) {
-            if (cn_name_eq(guard->name, name)) {
-                return true;
-            }
+        if (cn_name_map_lookup_entry(&cursor->result_guard_map, name) != NULL) {
+            return true;
         }
     }
     return false;
 }
 
 static void cn_scope_mark_result_ok(cn_sema_ctx *ctx, cn_scope *scope, cn_strview name) {
-    for (const cn_result_guard *guard = scope->result_guards; guard != NULL; guard = guard->next) {
-        if (cn_name_eq(guard->name, name)) {
-            return;
-        }
+    if (cn_name_map_lookup_entry(&scope->result_guard_map, name) != NULL) {
+        return;
     }
 
     cn_result_guard *guard = CN_ALLOC(ctx->allocator, cn_result_guard);
     guard->name = name;
     guard->next = scope->result_guards;
     scope->result_guards = guard;
+    cn_name_map_insert(ctx, &scope->result_guard_map, name, guard, 0, true);
 }
 
 static bool cn_scope_define(cn_sema_ctx *ctx, cn_scope *scope, cn_strview name, const cn_type_ref *type, bool is_mutable, size_t offset) {
-    for (const cn_binding *binding = scope->bindings; binding != NULL; binding = binding->next) {
-        if (cn_name_eq(binding->name, name)) {
-            cn_diag_emit(
-                ctx->diagnostics,
-                CN_DIAG_ERROR,
-                "E3003",
-                offset,
-                "duplicate local binding '%.*s'",
-                (int)name.length,
-                name.data
-            );
-            return false;
-        }
+    if (cn_name_map_lookup_entry(&scope->binding_map, name) != NULL) {
+        cn_diag_emit(
+            ctx->diagnostics,
+            CN_DIAG_ERROR,
+            "E3003",
+            offset,
+            "duplicate local binding '%.*s'",
+            (int)name.length,
+            name.data
+        );
+        return false;
     }
 
     cn_binding *binding = CN_ALLOC(ctx->allocator, cn_binding);
@@ -319,6 +506,7 @@ static bool cn_scope_define(cn_sema_ctx *ctx, cn_scope *scope, cn_strview name, 
     binding->is_mutable = is_mutable;
     binding->next = scope->bindings;
     scope->bindings = binding;
+    cn_name_map_insert(ctx, &scope->binding_map, name, binding, 0, true);
     return true;
 }
 
@@ -330,6 +518,7 @@ static void cn_scope_release(cn_sema_ctx *ctx, cn_scope *scope) {
         binding = next;
     }
     scope->bindings = NULL;
+    cn_name_map_release(ctx, &scope->binding_map);
 
     cn_result_guard *guard = scope->result_guards;
     while (guard != NULL) {
@@ -338,6 +527,7 @@ static void cn_scope_release(cn_sema_ctx *ctx, cn_scope *scope) {
         guard = next;
     }
     scope->result_guards = NULL;
+    cn_name_map_release(ctx, &scope->result_guard_map);
 }
 
 static void cn_temp_types_release(cn_sema_ctx *ctx) {
@@ -623,7 +813,7 @@ static bool cn_check_const_expr(cn_sema_ctx *ctx, const cn_expr *expression) {
     case CN_EXPR_ERR:
         return true;
     case CN_EXPR_NAME: {
-        cn_resolved_const resolved = cn_resolve_const_in_module(ctx->module, expression->data.name);
+        cn_resolved_const resolved = cn_resolve_const_in_module(ctx, ctx->module, expression->data.name);
         if (resolved.decl == NULL) {
             cn_diag_emit(
                 ctx->diagnostics,
@@ -881,7 +1071,7 @@ static const cn_type_ref *cn_check_field_access(cn_sema_ctx *ctx, cn_scope *scop
             return resolved_const.decl->type;
         }
 
-        if (cn_find_imported_module(ctx->module, expression->data.field.base->data.name) != NULL) {
+        if (cn_find_imported_module(ctx, ctx->module, expression->data.field.base->data.name) != NULL) {
             cn_diag_emit(
                 ctx->diagnostics,
                 CN_DIAG_ERROR,
@@ -1116,12 +1306,12 @@ static const cn_type_ref *cn_check_call(cn_sema_ctx *ctx, cn_scope *scope, const
             return cn_builtin_type(CN_TYPE_STR);
         }
 
-        if (cn_find_imported_module(ctx->module, callee) != NULL) {
+        if (cn_find_imported_module(ctx, ctx->module, callee) != NULL) {
             cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3014", expression->offset, "module names are not callable; use module.function(...)");
             return cn_builtin_type(CN_TYPE_UNKNOWN);
         }
 
-        if (cn_find_const(ctx->module, callee) != NULL) {
+        if (cn_find_const(ctx, ctx->module, callee) != NULL) {
             cn_diag_emit(
                 ctx->diagnostics,
                 CN_DIAG_ERROR,
@@ -1134,7 +1324,7 @@ static const cn_type_ref *cn_check_call(cn_sema_ctx *ctx, cn_scope *scope, const
             return cn_builtin_type(CN_TYPE_UNKNOWN);
         }
 
-        const cn_function *function = cn_find_local_function(ctx->module, callee);
+        const cn_function *function = cn_find_local_function(ctx, ctx->module, callee);
         if (function == NULL) {
             cn_diag_emit(
                 ctx->diagnostics,
@@ -1155,14 +1345,14 @@ static const cn_type_ref *cn_check_call(cn_sema_ctx *ctx, cn_scope *scope, const
     if (expression->data.call.callee->kind == CN_EXPR_FIELD && expression->data.call.callee->data.field.base->kind == CN_EXPR_NAME) {
         cn_strview module_name = expression->data.call.callee->data.field.base->data.name;
         cn_strview function_name = expression->data.call.callee->data.field.field_name;
-        const cn_module *imported = cn_find_imported_module(ctx->module, module_name);
+        const cn_module *imported = cn_find_imported_module(ctx, ctx->module, module_name);
 
         if (imported == NULL) {
             cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3014", expression->offset, "call target must be a function name or imported module function");
             return cn_builtin_type(CN_TYPE_UNKNOWN);
         }
 
-        if (cn_find_public_const(imported, function_name) != NULL) {
+        if (cn_find_public_const(ctx, imported, function_name) != NULL) {
             cn_diag_emit(
                 ctx->diagnostics,
                 CN_DIAG_ERROR,
@@ -1176,7 +1366,7 @@ static const cn_type_ref *cn_check_call(cn_sema_ctx *ctx, cn_scope *scope, const
             return cn_builtin_type(CN_TYPE_UNKNOWN);
         }
 
-        const cn_function *function = cn_find_public_function(imported, function_name);
+        const cn_function *function = cn_find_public_function(ctx, imported, function_name);
         if (function == NULL) {
             cn_diag_emit(
                 ctx->diagnostics,
@@ -1329,12 +1519,12 @@ static const cn_type_ref *cn_check_expression_hint(cn_sema_ctx *ctx, cn_scope *s
             return binding->type;
         }
 
-        const cn_const_decl *const_decl = cn_find_const(ctx->module, expression->data.name);
+        const cn_const_decl *const_decl = cn_find_const(ctx, ctx->module, expression->data.name);
         if (const_decl != NULL) {
             return const_decl->type;
         }
 
-        if (cn_find_imported_module(ctx->module, expression->data.name) != NULL) {
+        if (cn_find_imported_module(ctx, ctx->module, expression->data.name) != NULL) {
             cn_diag_emit(ctx->diagnostics, CN_DIAG_ERROR, "E3014", expression->offset, "module names are not values yet");
         } else {
             cn_diag_emit(
@@ -1526,7 +1716,7 @@ static cn_assignment_target cn_check_assignment_target(cn_sema_ctx *ctx, cn_scop
     if (target->kind == CN_EXPR_NAME) {
         const cn_binding *binding = cn_scope_lookup(scope, target->data.name);
         if (binding == NULL) {
-            const cn_const_decl *const_decl = cn_find_const(ctx->module, target->data.name);
+            const cn_const_decl *const_decl = cn_find_const(ctx, ctx->module, target->data.name);
             if (const_decl != NULL) {
                 cn_diag_emit(
                     ctx->diagnostics,
@@ -1869,110 +2059,125 @@ static bool cn_check_const_decl(cn_sema_ctx *ctx, const cn_module *module, const
 }
 
 static bool cn_check_module_header(cn_sema_ctx *ctx) {
+    cn_name_map import_aliases = {0};
+    cn_name_map const_names = {0};
+    cn_name_map struct_names = {0};
+    cn_name_map function_names = {0};
+
+    for (size_t i = 0; i < ctx->module->program->const_count; ++i) {
+        const cn_const_decl *previous = (const cn_const_decl *)cn_name_map_lookup_value(&const_names, ctx->module->program->consts[i]->name);
+        if (previous != NULL) {
+            cn_diag_emit(
+                ctx->diagnostics,
+                CN_DIAG_ERROR,
+                "E3027",
+                ctx->module->program->consts[i]->offset,
+                "duplicate constant '%.*s'",
+                (int)ctx->module->program->consts[i]->name.length,
+                ctx->module->program->consts[i]->name.data
+            );
+            continue;
+        }
+
+        cn_name_map_insert(ctx, &const_names, ctx->module->program->consts[i]->name, ctx->module->program->consts[i], 0, false);
+    }
+
+    for (size_t i = 0; i < ctx->module->program->struct_count; ++i) {
+        const cn_struct_decl *previous = (const cn_struct_decl *)cn_name_map_lookup_value(&struct_names, ctx->module->program->structs[i]->name);
+        if (previous != NULL) {
+            cn_diag_emit(
+                ctx->diagnostics,
+                CN_DIAG_ERROR,
+                "E3013",
+                ctx->module->program->structs[i]->offset,
+                "duplicate struct '%.*s'",
+                (int)ctx->module->program->structs[i]->name.length,
+                ctx->module->program->structs[i]->name.data
+            );
+            continue;
+        }
+
+        cn_name_map_insert(ctx, &struct_names, ctx->module->program->structs[i]->name, ctx->module->program->structs[i], 0, false);
+    }
+
+    for (size_t i = 0; i < ctx->module->program->function_count; ++i) {
+        const cn_function *previous = (const cn_function *)cn_name_map_lookup_value(&function_names, ctx->module->program->functions[i]->name);
+        if (previous != NULL) {
+            cn_diag_emit(
+                ctx->diagnostics,
+                CN_DIAG_ERROR,
+                "E3001",
+                ctx->module->program->functions[i]->offset,
+                "duplicate function '%.*s'",
+                (int)ctx->module->program->functions[i]->name.length,
+                ctx->module->program->functions[i]->name.data
+            );
+            continue;
+        }
+
+        cn_name_map_insert(ctx, &function_names, ctx->module->program->functions[i]->name, ctx->module->program->functions[i], 0, false);
+    }
+
     for (size_t i = 0; i < ctx->module->program->import_count; ++i) {
         if (ctx->module->imports[i] == NULL) {
             continue;
         }
 
-        for (size_t j = i + 1; j < ctx->module->program->import_count; ++j) {
-            if (cn_name_eq(ctx->module->program->imports[i].alias, ctx->module->program->imports[j].alias)) {
-                cn_diag_emit(
-                    ctx->diagnostics,
-                    CN_DIAG_ERROR,
-                    "E3016",
-                    ctx->module->program->imports[j].offset,
-                    "duplicate import alias '%.*s'",
-                    (int)ctx->module->program->imports[j].alias.length,
-                    ctx->module->program->imports[j].alias.data
-                );
-            }
+        const cn_import_decl *previous_import = (const cn_import_decl *)cn_name_map_lookup_value(&import_aliases, ctx->module->program->imports[i].alias);
+        if (previous_import != NULL) {
+            cn_diag_emit(
+                ctx->diagnostics,
+                CN_DIAG_ERROR,
+                "E3016",
+                ctx->module->program->imports[i].offset,
+                "duplicate import alias '%.*s'",
+                (int)ctx->module->program->imports[i].alias.length,
+                ctx->module->program->imports[i].alias.data
+            );
+        } else {
+            cn_name_map_insert(ctx, &import_aliases, ctx->module->program->imports[i].alias, &ctx->module->program->imports[i], 0, false);
         }
 
-        for (size_t j = 0; j < ctx->module->program->const_count; ++j) {
-            if (cn_name_eq(ctx->module->program->imports[i].alias, ctx->module->program->consts[j]->name)) {
-                cn_emit_top_level_name_conflict(
-                    ctx,
-                    ctx->module->program->consts[j]->offset,
-                    "constant",
-                    ctx->module->program->consts[j]->name,
-                    "import alias"
-                );
-            }
+        const cn_const_decl *const_decl = (const cn_const_decl *)cn_name_map_lookup_value(&const_names, ctx->module->program->imports[i].alias);
+        if (const_decl != NULL) {
+            cn_emit_top_level_name_conflict(
+                ctx,
+                const_decl->offset,
+                "constant",
+                const_decl->name,
+                "import alias"
+            );
         }
 
-        for (size_t j = 0; j < ctx->module->program->function_count; ++j) {
-            if (cn_name_eq(ctx->module->program->imports[i].alias, ctx->module->program->functions[j]->name)) {
-                cn_emit_top_level_name_conflict(
-                    ctx,
-                    ctx->module->program->functions[j]->offset,
-                    "function",
-                    ctx->module->program->functions[j]->name,
-                    "import alias"
-                );
-            }
-        }
-    }
-
-    for (size_t i = 0; i < ctx->module->program->const_count; ++i) {
-        for (size_t j = i + 1; j < ctx->module->program->const_count; ++j) {
-            if (cn_name_eq(ctx->module->program->consts[i]->name, ctx->module->program->consts[j]->name)) {
-                cn_diag_emit(
-                    ctx->diagnostics,
-                    CN_DIAG_ERROR,
-                    "E3027",
-                    ctx->module->program->consts[j]->offset,
-                    "duplicate constant '%.*s'",
-                    (int)ctx->module->program->consts[j]->name.length,
-                    ctx->module->program->consts[j]->name.data
-                );
-            }
-        }
-    }
-
-    for (size_t i = 0; i < ctx->module->program->struct_count; ++i) {
-        for (size_t j = i + 1; j < ctx->module->program->struct_count; ++j) {
-            if (cn_name_eq(ctx->module->program->structs[i]->name, ctx->module->program->structs[j]->name)) {
-                cn_diag_emit(
-                    ctx->diagnostics,
-                    CN_DIAG_ERROR,
-                    "E3013",
-                    ctx->module->program->structs[j]->offset,
-                    "duplicate struct '%.*s'",
-                    (int)ctx->module->program->structs[j]->name.length,
-                    ctx->module->program->structs[j]->name.data
-                );
-            }
+        const cn_function *function_decl = (const cn_function *)cn_name_map_lookup_value(&function_names, ctx->module->program->imports[i].alias);
+        if (function_decl != NULL) {
+            cn_emit_top_level_name_conflict(
+                ctx,
+                function_decl->offset,
+                "function",
+                function_decl->name,
+                "import alias"
+            );
         }
     }
 
     for (size_t i = 0; i < ctx->module->program->function_count; ++i) {
-        for (size_t j = i + 1; j < ctx->module->program->function_count; ++j) {
-            if (cn_name_eq(ctx->module->program->functions[i]->name, ctx->module->program->functions[j]->name)) {
-                cn_diag_emit(
-                    ctx->diagnostics,
-                    CN_DIAG_ERROR,
-                    "E3001",
-                    ctx->module->program->functions[j]->offset,
-                    "duplicate function '%.*s'",
-                    (int)ctx->module->program->functions[j]->name.length,
-                    ctx->module->program->functions[j]->name.data
-                );
-            }
-        }
-
-        for (size_t j = 0; j < ctx->module->program->const_count; ++j) {
-            if (cn_name_eq(ctx->module->program->functions[i]->name, ctx->module->program->consts[j]->name)) {
-                cn_emit_top_level_name_conflict(
-                    ctx,
-                    ctx->module->program->consts[j]->offset,
-                    "constant",
-                    ctx->module->program->consts[j]->name,
-                    "function"
-                );
-            }
+        const cn_const_decl *const_decl = (const cn_const_decl *)cn_name_map_lookup_value(&const_names, ctx->module->program->functions[i]->name);
+        if (const_decl != NULL) {
+            cn_emit_top_level_name_conflict(
+                ctx,
+                const_decl->offset,
+                "constant",
+                const_decl->name,
+                "function"
+            );
         }
     }
 
+    cn_name_map_release(ctx, &import_aliases);
+    cn_name_map_release(ctx, &const_names);
+    cn_name_map_release(ctx, &struct_names);
+    cn_name_map_release(ctx, &function_names);
     return !cn_diag_has_error(ctx->diagnostics);
 }
 
@@ -2051,6 +2256,7 @@ bool cn_sema_check_project(cn_project *project, cn_diag_bag *diagnostics) {
     ctx.allocator = project->allocator;
     ctx.current_function = NULL;
     ctx.temp_types = NULL;
+    ctx.module_caches = NULL;
 
     for (size_t module_index = 0; module_index < project->module_count; ++module_index) {
         ctx.module = project->modules[module_index];
@@ -2097,5 +2303,6 @@ bool cn_sema_check_project(cn_project *project, cn_diag_bag *diagnostics) {
     }
 
     cn_temp_types_release(&ctx);
+    cn_release_module_symbol_caches(&ctx);
     return !cn_diag_has_error(diagnostics);
 }

@@ -10,11 +10,15 @@ typedef struct cn_mem_record {
     size_t size;
     const char *file;
     int line;
+    struct cn_mem_record *prev;
     struct cn_mem_record *next;
+    struct cn_mem_record *bucket_next;
 } cn_mem_record;
 
 typedef struct cn_allocator {
     cn_mem_record *head;
+    cn_mem_record **buckets;
+    size_t bucket_capacity;
     size_t live_blocks;
     size_t live_bytes;
     size_t peak_bytes;

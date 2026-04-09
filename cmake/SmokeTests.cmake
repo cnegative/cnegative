@@ -144,6 +144,7 @@ cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_stdlib_
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_stdlib_lines.cneg)
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_if_expr.cneg)
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_defer.cneg)
+cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_defer_loop.cneg)
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_try.cneg)
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_raw_strings.cneg)
 
@@ -268,6 +269,10 @@ cn_assert_contains("${TMP_IR}" "return if (value == 0) {")
 cn_run_expect_success("${TMP_IR}" "${CNEGC_BIN}" ir examples/valid_defer.cneg)
 cn_assert_contains("${TMP_IR}" "print(\"cleanup\");")
 cn_assert_contains("${TMP_IR}" "if (value < 0) {")
+
+cn_run_expect_success("${TMP_IR}" "${CNEGC_BIN}" ir examples/valid_defer_loop.cneg)
+cn_assert_contains("${TMP_IR}" "fn valid_defer_loop.run() -> result int")
+cn_assert_contains("${TMP_IR}" "while (index < 3) {")
 
 cn_run_expect_success("${TMP_IR}" "${CNEGC_BIN}" ir examples/valid_try.cneg)
 cn_assert_contains("${TMP_IR}" "let __cn_try_")
@@ -618,6 +623,9 @@ cn_run_binary("${TMP_RUN}" 1 "" "${TMP_BIN}")
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" build examples/valid_defer.cneg "${TMP_BIN}")
 cn_run_binary("${TMP_RUN}" 0 "" "${TMP_BIN}")
 cn_assert_contains("${TMP_RUN}" "cleanup")
+
+cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" build examples/valid_defer_loop.cneg "${TMP_BIN}")
+cn_run_binary("${TMP_RUN}" 0 "" "${TMP_BIN}")
 
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" build examples/valid_try.cneg "${TMP_BIN}")
 cn_run_binary("${TMP_RUN}" 5 "" "${TMP_BIN}")
