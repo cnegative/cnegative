@@ -81,6 +81,19 @@ Implemented composite type forms:
 - `result T`
 - `slice T`
 
+Current array rule:
+
+- array sizes in types accept non-negative integer constant expressions
+- named constants can be used in array sizes, including imported public constants
+- `[value; N]` repeats one value across an array literal of size `N`
+- prefix type forms bind before array suffixes, so `ptr int[4]` means `array[4] of ptr int`
+
+Current null-pointer rule:
+
+- `null` is a source-level null pointer literal
+- `null` can be assigned or passed where a matching `ptr T` is expected
+- pointer equality against `null` is supported
+
 Current slice rule:
 
 - `slice T` is a non-owning view over contiguous `T` values.
@@ -91,7 +104,7 @@ Current slice rule:
 
 ```lang
 if x > 5 {
-    print(x);
+    println(x);
 }
 ```
 
@@ -114,6 +127,15 @@ Current `if` expression rules:
 - Both branches must produce a non-`void` value.
 - Both branches must resolve to the same type.
 
+Current temporary-allocation rule:
+
+- `zone { ... }` creates an explicit temporary allocation scope.
+- `zalloc T` is only valid inside an enclosing `zone`.
+- zone allocations are released automatically when the `zone` block ends.
+- `free` does not apply to zone-owned memory.
+- obvious zone escapes through `return` or outer storage are rejected.
+- zone-owned values also cannot cross ordinary function call boundaries yet.
+
 ### Loops
 
 ```lang
@@ -124,7 +146,7 @@ while x < 10 {
 
 ```lang
 for i:int in 0..10 {
-    print(i);
+    println(i);
 }
 ```
 
@@ -142,6 +164,13 @@ fn:int add(a:int, b:int) {
     return a + b;
 }
 ```
+
+Current `main` boundary:
+
+- `main` may return `int`, `u8`, `result int`, `result u8`, or `void`
+- `result`-returning `main` allows top-level `try`
+- successful `result int` and `result u8` values become the process exit code
+- `return err;` from `main` currently maps to process exit code `1`
 
 ### Modules
 
@@ -238,6 +267,7 @@ Current builtin stdlib surface:
 - `std.strings.len(str) -> int`
 - `std.strings.copy(str) -> str`
 - `std.strings.concat(str, str) -> str`
+- `std.strings.from_int(int) -> str`
 - `std.strings.eq(str, str) -> bool`
 - `std.strings.starts_with(str, str) -> bool`
 - `std.strings.ends_with(str, str) -> bool`
@@ -249,6 +279,7 @@ Current builtin stdlib surface:
 - `std.text.length(ptr std.text.Builder) -> int`
 - `std.text.capacity(ptr std.text.Builder) -> int`
 - `std.text.append(ptr std.text.Builder, str) -> result bool`
+- `std.text.append_int(ptr std.text.Builder, int) -> result bool`
 - `std.text.push_byte(ptr std.text.Builder, u8) -> result bool`
 - `std.text.build(ptr std.text.Builder) -> result str`
 - `std.text.view(ptr std.text.Builder) -> slice u8`
@@ -452,7 +483,14 @@ Current checked rule for `result` access:
 - `.value` requires proof in the current scope that the named result is ok.
 - `if r.ok { return r.value; }` is valid.
 - `if r.ok == false { return err; }` is also a valid proof pattern.
+- `let first:int = if r.ok { r.value[0] } else { 0 };` is valid.
+- `while r.ok { return r.value[0]; }` is also a valid proof pattern.
 - `return r.value;` without such a proof is rejected.
+
+Current output rule:
+
+- `print(...)` writes without an implicit newline.
+- `println(...)` writes the value and appends a newline.
 
 `try` is the shortcut for the common unwrap-or-return path inside `result ...` functions:
 
@@ -484,6 +522,32 @@ Current `defer` surface is intentionally small:
 
 - `defer expr;`
 - `defer free value;`
+
+`zone` is the scoped temporary-allocation form:
+
+```lang
+fn:int main() {
+    let mut total:int = 0;
+
+    zone {
+        let value:ptr int = zalloc int;
+        deref value = 7;
+        total = deref value;
+    }
+
+    return total;
+}
+```
+
+Current `zone` rule:
+
+- `alloc` still means normal heap allocation and still needs `free`
+- `zalloc` means temporary zone allocation
+- zone allocations are released when the block ends
+- `free` on zone-owned values is rejected
+- obvious escapes like `return value;` or assigning into outer storage are rejected
+- passing zone-owned values to ordinary function parameters is rejected for now
+- this feature is intentionally explicit and does not change manual string ownership
 
 String literals now also support raw multiline backtick form:
 

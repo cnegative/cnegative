@@ -1,0 +1,8 @@
+fn:int main() {
+    zone {
+        let value:ptr int = zalloc int;
+        free value;
+    }
+
+    return 0;
+}

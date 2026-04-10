@@ -61,6 +61,7 @@ static void cn_ir_opt_expr_destroy(cn_allocator *allocator, cn_ir_expr *expressi
         cn_ir_opt_expr_destroy(allocator, expression->data.ok_expr.value);
         break;
     case CN_IR_EXPR_ALLOC:
+    case CN_IR_EXPR_ZALLOC:
         cn_ir_type_destroy(allocator, expression->data.alloc_expr.alloc_type);
         break;
     case CN_IR_EXPR_ADDR:
@@ -72,6 +73,7 @@ static void cn_ir_opt_expr_destroy(cn_allocator *allocator, cn_ir_expr *expressi
     case CN_IR_EXPR_INT:
     case CN_IR_EXPR_BOOL:
     case CN_IR_EXPR_STRING:
+    case CN_IR_EXPR_NULL:
     case CN_IR_EXPR_LOCAL:
     case CN_IR_EXPR_ERR:
         break;
@@ -120,6 +122,9 @@ static void cn_ir_opt_stmt_destroy(cn_allocator *allocator, cn_ir_stmt *statemen
         break;
     case CN_IR_STMT_FREE:
         cn_ir_opt_expr_destroy(allocator, statement->data.free_stmt.value);
+        break;
+    case CN_IR_STMT_ZONE:
+        cn_ir_opt_block_destroy(allocator, statement->data.zone_stmt.body);
         break;
     }
 
@@ -297,6 +302,8 @@ static void cn_ir_optimize_expr(cn_allocator *allocator, cn_ir_expr *expression)
             cn_ir_optimize_expr(allocator, expression->data.array_literal.items.items[i]);
         }
         return;
+    case CN_IR_EXPR_NULL:
+        return;
     case CN_IR_EXPR_SLICE_FROM_ARRAY:
         cn_ir_optimize_expr(allocator, expression->data.slice_from_array.base);
         return;
@@ -336,6 +343,7 @@ static void cn_ir_optimize_expr(cn_allocator *allocator, cn_ir_expr *expression)
     case CN_IR_EXPR_LOCAL:
     case CN_IR_EXPR_ERR:
     case CN_IR_EXPR_ALLOC:
+    case CN_IR_EXPR_ZALLOC:
         return;
     }
 }
@@ -381,6 +389,9 @@ static void cn_ir_optimize_block(cn_allocator *allocator, cn_ir_block *block) {
             break;
         case CN_IR_STMT_FREE:
             cn_ir_optimize_expr(allocator, statement->data.free_stmt.value);
+            break;
+        case CN_IR_STMT_ZONE:
+            cn_ir_optimize_block(allocator, statement->data.zone_stmt.body);
             break;
         }
 

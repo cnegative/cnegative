@@ -1,0 +1,36 @@
+import std.strings as strings;
+import std.text as text;
+
+fn:result int main() {
+    try builder = text.new();
+    defer text.release(builder);
+
+    let prefix:str = strings.from_int(42);
+    defer free prefix;
+
+    if text.append(builder, "answer=").ok == false {
+        return err;
+    }
+    if text.append(builder, prefix).ok == false {
+        return err;
+    }
+    if text.append(builder, "; next=").ok == false {
+        return err;
+    }
+    if text.append_int(builder, 43).ok == false {
+        return err;
+    }
+
+    try built = text.build(builder);
+    print(built);
+
+    let prefix_ok:bool = strings.eq(prefix, "42");
+    let message_ok:bool = strings.eq(built, "answer=42; next=43");
+    free built;
+
+    if prefix_ok && message_ok {
+        return ok 43;
+    }
+
+    return err;
+}

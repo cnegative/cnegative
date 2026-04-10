@@ -63,6 +63,25 @@ void cn_llvm_emit_runtime_strings(FILE *stream) {
         stream
     );
     fputs(
+        "define private ptr @cn_from_int(i64 %value) {\n"
+        "entry:\n"
+        "  %buffer = alloca [32 x i8]\n"
+        "  %buffer.ptr = getelementptr inbounds [32 x i8], ptr %buffer, i64 0, i64 0\n"
+        "  %fmt = getelementptr inbounds [5 x i8], ptr @.cn.int_str_fmt, i64 0, i64 0\n"
+        "  %written = call i32 (ptr, i64, ptr, ...) @snprintf(ptr %buffer.ptr, i64 32, ptr %fmt, i64 %value)\n"
+        "  %ok = icmp sge i32 %written, 0\n"
+        "  br i1 %ok, label %copy, label %fallback\n"
+        "copy:\n"
+        "  %length = sext i32 %written to i64\n"
+        "  %owned = call ptr @cn_dup_range(ptr %buffer.ptr, i64 %length)\n"
+        "  ret ptr %owned\n"
+        "fallback:\n"
+        "  %empty.ptr = getelementptr inbounds [1 x i8], ptr @.cn.empty, i64 0, i64 0\n"
+        "  ret ptr %empty.ptr\n"
+        "}\n\n",
+        stream
+    );
+    fputs(
         "define private i1 @cn_starts_with(ptr %value, ptr %prefix) {\n"
         "entry:\n"
         "  %value.len = call i64 @strlen(ptr %value)\n"

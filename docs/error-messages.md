@@ -51,6 +51,13 @@
 - `E3036`: `addr` cannot target a module constant.
 - `E3037`: `free` cannot release a `slice` value.
 - `E3038`: `free` cannot release a `result` wrapper directly.
+- `E3039`: array size must be a non-negative integer constant.
+- `E3040`: array repeat count must be a non-negative integer constant.
+- `E3041`: `zalloc` requires an enclosing `zone` block.
+- `E3042`: zone-owned value cannot escape through `return`.
+- `E3043`: `free` cannot release zone-owned memory.
+- `E3044`: zone-owned value cannot escape into outer storage.
+- `E3045`: zone-owned value cannot cross a function call boundary yet.
 
 ## Runtime Memory Errors (R4xxx)
 

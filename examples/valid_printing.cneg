@@ -1,0 +1,9 @@
+fn:int main() {
+    print("A");
+    print(7);
+    print(false);
+    println("!");
+    println(3);
+    println(true);
+    return 0;
+}

@@ -1,0 +1,16 @@
+import config as cfg;
+
+fn:int main() {
+    let values:int[cfg.CAP] = [7; cfg.CAP];
+    let ptrs:ptr int[cfg.CAP] = [null; cfg.CAP];
+
+    if ptrs[0] != null {
+        return 1;
+    }
+
+    if ptrs[3] != null {
+        return 2;
+    }
+
+    return values[0] + values[1] + values[2] + values[3];
+}

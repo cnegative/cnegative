@@ -2,6 +2,39 @@
 
 void cn_llvm_emit_runtime_io(FILE *stream) {
     fputs(
+        "define private void @cn_write_int(i64 %value) {\n"
+        "entry:\n"
+        "  %fmt = getelementptr inbounds [5 x i8], ptr @.cn.int_str_fmt, i64 0, i64 0\n"
+        "  call i32 (ptr, ...) @printf(ptr %fmt, i64 %value)\n"
+        "  ret void\n"
+        "}\n\n",
+        stream
+    );
+    fputs(
+        "define private void @cn_write_bool(i1 %value) {\n"
+        "entry:\n"
+        "  br i1 %value, label %l0, label %l1\n"
+        "l0:\n"
+        "  %true.ptr = getelementptr inbounds [5 x i8], ptr @.cn.true, i64 0, i64 0\n"
+        "  call void @cn_write_str(ptr %true.ptr)\n"
+        "  ret void\n"
+        "l1:\n"
+        "  %false.ptr = getelementptr inbounds [6 x i8], ptr @.cn.false, i64 0, i64 0\n"
+        "  call void @cn_write_str(ptr %false.ptr)\n"
+        "  ret void\n"
+        "}\n\n",
+        stream
+    );
+    fputs(
+        "define private void @cn_write_str(ptr %value) {\n"
+        "entry:\n"
+        "  %fmt = getelementptr inbounds [3 x i8], ptr @.cn.str_fmt, i64 0, i64 0\n"
+        "  call i32 (ptr, ...) @printf(ptr %fmt, ptr %value)\n"
+        "  ret void\n"
+        "}\n\n",
+        stream
+    );
+    fputs(
         "define private void @cn_print_int(i64 %value) {\n"
         "entry:\n"
         "  %fmt = getelementptr inbounds [6 x i8], ptr @.cn.int_fmt, i64 0, i64 0\n"
@@ -21,15 +54,6 @@ void cn_llvm_emit_runtime_io(FILE *stream) {
         "l1:\n"
         "  %false.ptr = getelementptr inbounds [6 x i8], ptr @.cn.false, i64 0, i64 0\n"
         "  call i32 @puts(ptr %false.ptr)\n"
-        "  ret void\n"
-        "}\n\n",
-        stream
-    );
-    fputs(
-        "define private void @cn_write_str(ptr %value) {\n"
-        "entry:\n"
-        "  %fmt = getelementptr inbounds [3 x i8], ptr @.cn.str_fmt, i64 0, i64 0\n"
-        "  call i32 (ptr, ...) @printf(ptr %fmt, ptr %value)\n"
         "  ret void\n"
         "}\n\n",
         stream

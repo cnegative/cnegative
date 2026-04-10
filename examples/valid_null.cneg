@@ -1,0 +1,27 @@
+fn:int load_or_zero(value:ptr int) {
+    if value == null {
+        return 0;
+    }
+
+    return deref value;
+}
+
+fn:int main() {
+    let mut data:int = 7;
+    let mut current:ptr int = null;
+
+    if current != null {
+        return 1;
+    }
+
+    if load_or_zero(current) != 0 {
+        return 2;
+    }
+
+    current = addr data;
+    if current == null {
+        return 3;
+    }
+
+    return load_or_zero(current);
+}

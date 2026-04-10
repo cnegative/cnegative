@@ -1,0 +1,4 @@
+fn:int main() {
+    let value:ptr int = zalloc int;
+    return 0;
+}

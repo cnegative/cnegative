@@ -273,9 +273,11 @@ static bool cn_backend_expr_uses_builtin_module(const cn_ir_expr *expression, co
         return cn_backend_expr_uses_builtin_module(expression->data.addr_expr.target, module_name);
     case CN_IR_EXPR_DEREF:
         return cn_backend_expr_uses_builtin_module(expression->data.deref_expr.target, module_name);
+    case CN_IR_EXPR_ZALLOC:
     case CN_IR_EXPR_INT:
     case CN_IR_EXPR_BOOL:
     case CN_IR_EXPR_STRING:
+    case CN_IR_EXPR_NULL:
     case CN_IR_EXPR_LOCAL:
     case CN_IR_EXPR_ALLOC:
         return false;
@@ -295,6 +297,8 @@ static bool cn_backend_stmt_uses_builtin_module(const cn_ir_stmt *statement, con
         return cn_backend_expr_uses_builtin_module(statement->data.return_stmt.value, module_name);
     case CN_IR_STMT_EXPR:
         return cn_backend_expr_uses_builtin_module(statement->data.expr_stmt.value, module_name);
+    case CN_IR_STMT_ZONE:
+        return cn_backend_block_uses_builtin_module(statement->data.zone_stmt.body, module_name);
     case CN_IR_STMT_IF:
         return cn_backend_expr_uses_builtin_module(statement->data.if_stmt.condition, module_name) ||
                cn_backend_block_uses_builtin_module(statement->data.if_stmt.then_block, module_name) ||

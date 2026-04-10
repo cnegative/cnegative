@@ -8,6 +8,7 @@ const char *cn_token_kind_name(cn_token_kind kind) {
     case CN_TOKEN_STRING_LITERAL: return "string-literal";
     case CN_TOKEN_TRUE: return "true";
     case CN_TOKEN_FALSE: return "false";
+    case CN_TOKEN_NULL: return "null";
     case CN_TOKEN_FN: return "fn";
     case CN_TOKEN_PFN: return "pfn";
     case CN_TOKEN_CONST: return "const";
@@ -36,11 +37,13 @@ const char *cn_token_kind_name(cn_token_kind kind) {
     case CN_TOKEN_ERR: return "err";
     case CN_TOKEN_PTR: return "ptr";
     case CN_TOKEN_ALLOC: return "alloc";
+    case CN_TOKEN_ZALLOC: return "zalloc";
     case CN_TOKEN_ADDR: return "addr";
     case CN_TOKEN_DEREF: return "deref";
     case CN_TOKEN_FREE: return "free";
     case CN_TOKEN_DEFER: return "defer";
     case CN_TOKEN_TRY: return "try";
+    case CN_TOKEN_ZONE: return "zone";
     case CN_TOKEN_SLICE: return "slice";
     case CN_TOKEN_LPAREN: return "(";
     case CN_TOKEN_RPAREN: return ")";

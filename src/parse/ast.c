@@ -76,6 +76,7 @@ cn_type_ref *cn_type_create(cn_allocator *allocator, cn_type_kind kind, cn_strvi
     type->module_name = cn_sv_from_parts(NULL, 0);
     type->name = name;
     type->inner = inner;
+    type->array_size_expr = NULL;
     type->array_size = 0;
     type->offset = offset;
     return type;
@@ -294,6 +295,9 @@ void cn_type_describe(const cn_type_ref *type, char *buffer, size_t buffer_size)
     case CN_TYPE_VOID:
         snprintf(buffer, buffer_size, "void");
         break;
+    case CN_TYPE_NULL:
+        snprintf(buffer, buffer_size, "null");
+        break;
     case CN_TYPE_RESULT: {
         char inner[128];
         cn_type_describe(type->inner, inner, sizeof(inner));
@@ -344,6 +348,7 @@ static void cn_type_destroy(cn_allocator *allocator, cn_type_ref *type) {
         return;
     }
 
+    cn_expr_destroy(allocator, type->array_size_expr);
     cn_type_destroy(allocator, type->inner);
     CN_FREE(allocator, type);
 }
@@ -377,6 +382,7 @@ static void cn_expr_destroy(cn_allocator *allocator, cn_expr *expression) {
         for (size_t i = 0; i < expression->data.array_literal.items.count; ++i) {
             cn_expr_destroy(allocator, expression->data.array_literal.items.items[i]);
         }
+        cn_expr_destroy(allocator, expression->data.array_literal.repeat_count_expr);
         CN_FREE(allocator, expression->data.array_literal.items.items);
         break;
     case CN_EXPR_INDEX:
@@ -400,8 +406,13 @@ static void cn_expr_destroy(cn_allocator *allocator, cn_expr *expression) {
     case CN_EXPR_OK:
         cn_expr_destroy(allocator, expression->data.ok_expr.value);
         break;
+    case CN_EXPR_NULL:
+        break;
     case CN_EXPR_ALLOC:
         cn_type_destroy(allocator, expression->data.alloc_expr.type);
+        break;
+    case CN_EXPR_ZALLOC:
+        cn_type_destroy(allocator, expression->data.zalloc_expr.type);
         break;
     case CN_EXPR_ADDR:
         cn_expr_destroy(allocator, expression->data.addr_expr.target);
@@ -443,6 +454,9 @@ static void cn_stmt_destroy(cn_allocator *allocator, cn_stmt *statement) {
         break;
     case CN_STMT_TRY:
         cn_expr_destroy(allocator, statement->data.try_stmt.initializer);
+        break;
+    case CN_STMT_ZONE:
+        cn_block_destroy(allocator, statement->data.zone_stmt.body);
         break;
     case CN_STMT_IF:
         cn_expr_destroy(allocator, statement->data.if_stmt.condition);

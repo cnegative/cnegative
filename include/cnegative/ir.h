@@ -13,6 +13,7 @@ typedef enum cn_ir_type_kind {
     CN_IR_TYPE_BOOL,
     CN_IR_TYPE_STR,
     CN_IR_TYPE_VOID,
+    CN_IR_TYPE_NULL,
     CN_IR_TYPE_RESULT,
     CN_IR_TYPE_PTR,
     CN_IR_TYPE_SLICE,
@@ -60,6 +61,7 @@ typedef enum cn_ir_expr_kind {
     CN_IR_EXPR_INT,
     CN_IR_EXPR_BOOL,
     CN_IR_EXPR_STRING,
+    CN_IR_EXPR_NULL,
     CN_IR_EXPR_LOCAL,
     CN_IR_EXPR_UNARY,
     CN_IR_EXPR_BINARY,
@@ -74,6 +76,7 @@ typedef enum cn_ir_expr_kind {
     CN_IR_EXPR_OK,
     CN_IR_EXPR_ERR,
     CN_IR_EXPR_ALLOC,
+    CN_IR_EXPR_ZALLOC,
     CN_IR_EXPR_ADDR,
     CN_IR_EXPR_DEREF
 } cn_ir_expr_kind;
@@ -163,6 +166,10 @@ struct cn_ir_expr {
             cn_ir_type *alloc_type;
         } alloc_expr;
         struct {
+            cn_ir_type *alloc_type;
+            cn_strview zone_name;
+        } zalloc_expr;
+        struct {
             cn_ir_expr *target;
         } addr_expr;
         struct {
@@ -176,6 +183,7 @@ typedef enum cn_ir_stmt_kind {
     CN_IR_STMT_ASSIGN,
     CN_IR_STMT_RETURN,
     CN_IR_STMT_EXPR,
+    CN_IR_STMT_ZONE,
     CN_IR_STMT_IF,
     CN_IR_STMT_WHILE,
     CN_IR_STMT_LOOP,
@@ -214,6 +222,10 @@ struct cn_ir_stmt {
         struct {
             cn_ir_expr *value;
         } expr_stmt;
+        struct {
+            cn_strview zone_name;
+            cn_ir_block *body;
+        } zone_stmt;
         struct {
             cn_ir_expr *condition;
             cn_ir_block *then_block;

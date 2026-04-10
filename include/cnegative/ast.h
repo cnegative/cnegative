@@ -10,6 +10,7 @@ typedef enum cn_type_kind {
     CN_TYPE_BOOL,
     CN_TYPE_STR,
     CN_TYPE_VOID,
+    CN_TYPE_NULL,
     CN_TYPE_RESULT,
     CN_TYPE_PTR,
     CN_TYPE_SLICE,
@@ -23,6 +24,7 @@ typedef struct cn_type_ref {
     cn_strview module_name;
     cn_strview name;
     struct cn_type_ref *inner;
+    struct cn_expr *array_size_expr;
     size_t array_size;
     size_t offset;
 } cn_type_ref;
@@ -96,6 +98,7 @@ typedef enum cn_expr_kind {
     CN_EXPR_INT,
     CN_EXPR_BOOL,
     CN_EXPR_STRING,
+    CN_EXPR_NULL,
     CN_EXPR_NAME,
     CN_EXPR_UNARY,
     CN_EXPR_BINARY,
@@ -109,6 +112,7 @@ typedef enum cn_expr_kind {
     CN_EXPR_OK,
     CN_EXPR_ERR,
     CN_EXPR_ALLOC,
+    CN_EXPR_ZALLOC,
     CN_EXPR_ADDR,
     CN_EXPR_DEREF
 } cn_expr_kind;
@@ -147,6 +151,8 @@ struct cn_expr {
         } call;
         struct {
             cn_expr_list items;
+            cn_expr *repeat_count_expr;
+            size_t repeat_count;
         } array_literal;
         struct {
             cn_expr *base;
@@ -173,6 +179,9 @@ struct cn_expr {
             cn_type_ref *type;
         } alloc_expr;
         struct {
+            cn_type_ref *type;
+        } zalloc_expr;
+        struct {
             cn_expr *target;
         } addr_expr;
         struct {
@@ -188,6 +197,7 @@ typedef enum cn_stmt_kind {
     CN_STMT_EXPR,
     CN_STMT_DEFER,
     CN_STMT_TRY,
+    CN_STMT_ZONE,
     CN_STMT_IF,
     CN_STMT_WHILE,
     CN_STMT_LOOP,
@@ -233,6 +243,9 @@ struct cn_stmt {
             cn_strview name;
             cn_expr *initializer;
         } try_stmt;
+        struct {
+            cn_block *body;
+        } zone_stmt;
         struct {
             cn_expr *condition;
             cn_block *then_block;

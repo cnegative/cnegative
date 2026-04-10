@@ -1,0 +1,11 @@
+fn:void sink(p:ptr int) {
+}
+
+fn:int main() {
+    zone {
+        let value:ptr int = zalloc int;
+        sink(value);
+    }
+
+    return 0;
+}

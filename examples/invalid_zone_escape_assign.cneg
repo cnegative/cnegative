@@ -1,0 +1,14 @@
+fn:int main() {
+    let mut escaped:ptr int = null;
+
+    zone {
+        let value:ptr int = zalloc int;
+        escaped = value;
+    }
+
+    if escaped == null {
+        return 0;
+    }
+
+    return 1;
+}

@@ -1,0 +1,79 @@
+v0.5.0 working notes
+====================
+
+This file started as a stress-derived wishlist. It now tracks what was actually
+patched in the current v0.5.0 branch work versus what is still open.
+
+Fixed in this branch
+--------------------
+
+1. No `try` in `main`
+   - Status: fixed
+   - `main` may now return `result int` or `result u8`
+   - This allows top-level `try` in normal CLI programs
+   - `return err;` from `main` currently maps to exit code `1`
+
+2. No int-to-string path
+   - Status: fixed
+   - Added `std.strings.from_int(int) -> str`
+   - Added `std.text.append_int(ptr std.text.Builder, int) -> result bool`
+
+3. Missing `null` literal
+   - Status: fixed
+   - Added source-level `null`
+   - `null` can be assigned or passed where `ptr T` is expected
+   - Pointer equality against `null` now works
+
+4. Array constant-size and repeat-literal ergonomics
+   - Status: fixed
+   - Array sizes in types now accept non-negative integer constant expressions
+   - Imported public constants can be used in array type sizes
+   - Added `[value; N]` repeat literals
+
+5. Array type-check bug around pointer arrays
+   - Status: fixed
+   - `ptr T[N]` now parses as `array[N] of ptr T`
+   - This removes the earlier misleading `ptr T[N]` ambiguity in array-heavy code
+
+Still open
+----------
+
+1. Keyword collision around `result`
+   - Status: open
+   - `result` is still reserved and cannot be reused as a normal identifier
+
+2. `print` newline behavior
+   - Status: fixed
+   - `print(...)` now writes without an implicit newline
+   - Added `println(...)` for the newline-appending form
+   - This makes inline text and integer output behave more predictably
+
+3. Rigid `.value` proof system
+   - Status: partially improved, still open
+   - Simple `if r.ok == false { return ...; }` patterns are understood now
+   - `if` expression branches and `while r.ok { ... }` bodies now inherit the
+     proven-ok guard
+   - More complex proof tracking is still limited beyond those guarded shapes
+
+4. Manual string tracking
+   - Status: intentional
+   - The model stays explicit and manual by design
+   - Owned-string ergonomics may improve, but ownership is not meant to become automatic
+
+5. Indexing limitation after more complex flows
+   - Status: fixed
+   - Guarded indexing like `if r.ok { r.value[0] } else { ... }` now works
+   - Guarded slicing like `if r.ok { r.value[1..] } else { ... }` now works
+   - `while r.ok { ... r.value[index] ... }` now works too
+
+Patched in this branch after the original notes
+----------------------------------------------
+
+1. `zone { ... }` and `zalloc T`
+   - Status: fixed
+   - `zone { ... }` creates an explicit temporary-allocation scope
+   - `zalloc T` allocates inside the current zone instead of the normal heap
+   - zone allocations are released automatically when the zone ends
+   - `free` on zone memory is rejected
+   - obvious zone escapes through `return` or outer storage are rejected
+   - phase 2 also blocks zone-owned values from crossing ordinary function-call boundaries yet

@@ -1,5 +1,23 @@
 # Patches
 
+## v0.5.0
+
+- Added source-level `null` and pointer equality against `null`.
+- Allowed `main` to return `result int` and `result u8`, which makes top-level
+  `try` usable in normal CLI programs.
+- Added `std.strings.from_int(int)` and `std.text.append_int(...)` for direct
+  integer-to-text formatting paths.
+- Reworked printing so `print(...)` no longer appends a newline and
+  `println(...)` is the newline form.
+- Expanded arrays with constant-expression sizes and `[value; N]` repeat
+  literals, and fixed the `ptr T[N]` parsing ambiguity so it now means
+  `array[N] of ptr T`.
+- Tightened result-guard handling for indexing and slicing after proven-ok
+  flows.
+- Added `zone { ... }` and `zalloc T` for explicit temporary scoped
+  allocations, including phase-2 escape checks for returns, outer storage, and
+  ordinary function-call boundaries.
+
 ## v0.4.4
 
 - Reworked module loading so imports now resolve through a clear search order:

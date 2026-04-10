@@ -9,11 +9,20 @@ typedef struct cn_ir_binding {
 
 typedef struct cn_ir_scope {
     cn_ir_binding *bindings;
+    cn_strview zone_name;
     struct cn_ir_scope *parent;
 } cn_ir_scope;
 
+typedef enum cn_ir_defer_entry_kind {
+    CN_IR_DEFER_AST_STATEMENT,
+    CN_IR_DEFER_ZONE_RELEASE
+} cn_ir_defer_entry_kind;
+
 typedef struct cn_ir_defer_entry {
+    cn_ir_defer_entry_kind kind;
     const cn_stmt *statement;
+    cn_strview zone_name;
+    size_t offset;
     cn_ir_scope *captured_scope;
     struct cn_ir_defer_entry *next;
 } cn_ir_defer_entry;
@@ -79,6 +88,16 @@ static const cn_ir_binding *cn_ir_scope_lookup(const cn_ir_scope *scope, cn_strv
     return NULL;
 }
 
+static cn_strview cn_ir_scope_current_zone_name(const cn_ir_scope *scope) {
+    for (const cn_ir_scope *cursor = scope; cursor != NULL; cursor = cursor->parent) {
+        if (cursor->zone_name.length > 0) {
+            return cursor->zone_name;
+        }
+    }
+
+    return cn_sv_from_parts(NULL, 0);
+}
+
 static bool cn_ir_scope_define(cn_ir_lower_ctx *ctx, cn_ir_scope *scope, cn_strview name, const cn_ir_type *type, bool is_mutable) {
     for (const cn_ir_binding *binding = scope->bindings; binding != NULL; binding = binding->next) {
         if (cn_sv_eq(binding->name, name)) {
@@ -107,6 +126,7 @@ static bool cn_ir_scope_define(cn_ir_lower_ctx *ctx, cn_ir_scope *scope, cn_strv
 static cn_ir_scope *cn_ir_capture_scope(cn_ir_lower_ctx *ctx, const cn_ir_scope *scope) {
     cn_ir_scope *snapshot = CN_ALLOC(ctx->allocator, cn_ir_scope);
     snapshot->bindings = NULL;
+    snapshot->zone_name = cn_ir_scope_current_zone_name(scope);
     snapshot->parent = NULL;
 
     cn_ir_binding **tail = &snapshot->bindings;
@@ -521,6 +541,58 @@ static cn_ir_expr *cn_ir_make_int_literal(cn_ir_lower_ctx *ctx, size_t offset, i
     return expression;
 }
 
+static cn_ir_expr *cn_ir_make_local_expr(
+    cn_ir_lower_ctx *ctx,
+    size_t offset,
+    cn_strview name,
+    const cn_ir_type *type
+) {
+    cn_ir_expr *expression = cn_ir_expr_create(ctx->allocator, CN_IR_EXPR_LOCAL, offset);
+    expression->data.local_name = name;
+    expression->type = cn_ir_type_clone(ctx->allocator, type);
+    return expression;
+}
+
+static cn_ir_expr *cn_ir_make_hidden_builtin_call(
+    cn_ir_lower_ctx *ctx,
+    size_t offset,
+    const char *function_name,
+    cn_ir_type *return_type
+) {
+    cn_ir_expr *expression = cn_ir_expr_create(ctx->allocator, CN_IR_EXPR_CALL, offset);
+    expression->data.call.target_kind = CN_IR_CALL_BUILTIN;
+    expression->data.call.module_name = cn_sv_from_parts(NULL, 0);
+    expression->data.call.function_name = cn_sv_from_cstr(function_name);
+    expression->data.call.arguments.items = NULL;
+    expression->data.call.arguments.count = 0;
+    expression->data.call.arguments.capacity = 0;
+    expression->type = return_type;
+    return expression;
+}
+
+static cn_ir_stmt *cn_ir_make_zone_release_stmt(
+    cn_ir_lower_ctx *ctx,
+    cn_strview zone_name,
+    size_t offset
+) {
+    cn_ir_type *zone_inner = cn_ir_make_builtin_type(ctx->allocator, CN_IR_TYPE_U8);
+    cn_ir_type *zone_type = cn_ir_make_ptr_type(ctx->allocator, zone_inner);
+    cn_ir_type_destroy(ctx->allocator, zone_inner);
+    cn_ir_expr *call = cn_ir_make_hidden_builtin_call(
+        ctx,
+        offset,
+        "__zone_release",
+        cn_ir_make_builtin_type(ctx->allocator, CN_IR_TYPE_VOID)
+    );
+    cn_ir_expr *zone_local = cn_ir_make_local_expr(ctx, offset, zone_name, zone_type);
+    cn_ir_type_destroy(ctx->allocator, zone_type);
+    cn_ir_expr_list_push(ctx->allocator, &call->data.call.arguments, zone_local);
+
+    cn_ir_stmt *statement = cn_ir_stmt_create(ctx->allocator, CN_IR_STMT_EXPR, offset);
+    statement->data.expr_stmt.value = call;
+    return statement;
+}
+
 static cn_ir_expr *cn_ir_lower_array_literal(cn_ir_lower_ctx *ctx, cn_ir_scope *scope, const cn_expr *expression, const cn_ir_type *expected) {
     cn_ir_expr *ir_expression = cn_ir_expr_create(ctx->allocator, CN_IR_EXPR_ARRAY_LITERAL, expression->offset);
     ir_expression->data.array_literal.items.items = NULL;
@@ -532,12 +604,25 @@ static cn_ir_expr *cn_ir_lower_array_literal(cn_ir_lower_ctx *ctx, cn_ir_scope *
         element_expected = expected->inner;
     }
 
-    for (size_t i = 0; i < expression->data.array_literal.items.count; ++i) {
-        cn_ir_expr *item = cn_ir_lower_expression(ctx, scope, expression->data.array_literal.items.items[i], element_expected);
-        if (item == NULL) {
-            return ir_expression;
+    if (expression->data.array_literal.repeat_count_expr != NULL) {
+        const cn_expr *item_expression = expression->data.array_literal.items.count > 0
+            ? expression->data.array_literal.items.items[0]
+            : NULL;
+        for (size_t i = 0; i < expression->data.array_literal.repeat_count; ++i) {
+            cn_ir_expr *item = cn_ir_lower_expression(ctx, scope, item_expression, element_expected);
+            if (item == NULL) {
+                return ir_expression;
+            }
+            cn_ir_expr_list_push(ctx->allocator, &ir_expression->data.array_literal.items, item);
         }
-        cn_ir_expr_list_push(ctx->allocator, &ir_expression->data.array_literal.items, item);
+    } else {
+        for (size_t i = 0; i < expression->data.array_literal.items.count; ++i) {
+            cn_ir_expr *item = cn_ir_lower_expression(ctx, scope, expression->data.array_literal.items.items[i], element_expected);
+            if (item == NULL) {
+                return ir_expression;
+            }
+            cn_ir_expr_list_push(ctx->allocator, &ir_expression->data.array_literal.items, item);
+        }
     }
 
     if (expected != NULL && expected->kind == CN_IR_TYPE_ARRAY) {
@@ -786,7 +871,7 @@ static cn_ir_expr *cn_ir_lower_call(cn_ir_lower_ctx *ctx, cn_ir_scope *scope, co
     if (expression->data.call.callee->kind == CN_EXPR_NAME) {
         cn_strview callee = expression->data.call.callee->data.name;
 
-        if (cn_sv_eq_cstr(callee, "print")) {
+        if (cn_sv_eq_cstr(callee, "print") || cn_sv_eq_cstr(callee, "println")) {
             ir_expression->data.call.target_kind = CN_IR_CALL_BUILTIN;
             ir_expression->data.call.function_name = callee;
             if (!cn_ir_lower_call_arguments(ctx, scope, ir_expression, &expression->data.call.arguments, NULL)) {
@@ -887,6 +972,14 @@ static cn_ir_expr *cn_ir_lower_expression(cn_ir_lower_ctx *ctx, cn_ir_scope *sco
         ir_expression = cn_ir_expr_create(ctx->allocator, CN_IR_EXPR_STRING, expression->offset);
         ir_expression->data.string_value = expression->data.string_value;
         ir_expression->type = cn_ir_make_builtin_type(ctx->allocator, CN_IR_TYPE_STR);
+        return ir_expression;
+    case CN_EXPR_NULL:
+        ir_expression = cn_ir_expr_create(ctx->allocator, CN_IR_EXPR_NULL, expression->offset);
+        if (expected != NULL && expected->kind == CN_IR_TYPE_PTR) {
+            ir_expression->type = cn_ir_type_clone(ctx->allocator, expected);
+        } else {
+            ir_expression->type = cn_ir_make_builtin_type(ctx->allocator, CN_IR_TYPE_NULL);
+        }
         return ir_expression;
     case CN_EXPR_NAME: {
         const cn_ir_binding *binding = cn_ir_scope_lookup(scope, expression->data.name);
@@ -1055,6 +1148,19 @@ static cn_ir_expr *cn_ir_lower_expression(cn_ir_lower_ctx *ctx, cn_ir_scope *sco
         ir_expression->data.alloc_expr.alloc_type = cn_ir_type_from_ast(ctx->allocator, expression->data.alloc_expr.type);
         ir_expression->type = cn_ir_make_ptr_type(ctx->allocator, ir_expression->data.alloc_expr.alloc_type);
         return ir_expression;
+    case CN_EXPR_ZALLOC: {
+        cn_strview zone_name = cn_ir_scope_current_zone_name(scope);
+        if (zone_name.length == 0) {
+            cn_ir_emit_internal_error(ctx, expression->offset, "typed IR lowering expected zalloc inside a checked zone scope");
+            return NULL;
+        }
+
+        ir_expression = cn_ir_expr_create(ctx->allocator, CN_IR_EXPR_ZALLOC, expression->offset);
+        ir_expression->data.zalloc_expr.alloc_type = cn_ir_type_from_ast(ctx->allocator, expression->data.zalloc_expr.type);
+        ir_expression->data.zalloc_expr.zone_name = zone_name;
+        ir_expression->type = cn_ir_make_ptr_type(ctx->allocator, ir_expression->data.zalloc_expr.alloc_type);
+        return ir_expression;
+    }
     case CN_EXPR_ADDR: {
         cn_ir_expr *target = cn_ir_lower_expression(ctx, scope, expression->data.addr_expr.target, NULL);
         if (target == NULL) {
@@ -1095,13 +1201,18 @@ static void cn_ir_emit_local_deferred_entries(
     const cn_ir_type *function_return_type
 ) {
     for (const cn_ir_defer_entry *entry = frame->entries; entry != NULL; entry = entry->next) {
-        cn_ir_stmt *statement = cn_ir_lower_statement(
-            ctx,
-            entry->captured_scope,
-            entry->statement,
-            function_return_type,
-            NULL
-        );
+        cn_ir_stmt *statement = NULL;
+        if (entry->kind == CN_IR_DEFER_ZONE_RELEASE) {
+            statement = cn_ir_make_zone_release_stmt(ctx, entry->zone_name, entry->offset);
+        } else {
+            statement = cn_ir_lower_statement(
+                ctx,
+                entry->captured_scope,
+                entry->statement,
+                function_return_type,
+                NULL
+            );
+        }
         if (statement != NULL) {
             cn_ir_stmt_list_push(ctx->allocator, &ir_block->statements, statement);
         }
@@ -1199,6 +1310,56 @@ static void cn_ir_lower_try_statement(
     cn_ir_scope_define(ctx, scope, value_let->data.let_stmt.name, value_let->data.let_stmt.type, false);
 }
 
+static cn_ir_stmt *cn_ir_lower_zone_statement(
+    cn_ir_lower_ctx *ctx,
+    cn_ir_scope *scope,
+    const cn_stmt *statement,
+    const cn_ir_type *function_return_type,
+    cn_ir_defer_frame *defer_parent
+) {
+    cn_ir_stmt *ir_statement = cn_ir_stmt_create(ctx->allocator, CN_IR_STMT_ZONE, statement->offset);
+    cn_ir_scope zone_scope = {0};
+    cn_ir_defer_frame zone_defer = {0};
+    cn_ir_type *zone_inner = cn_ir_make_builtin_type(ctx->allocator, CN_IR_TYPE_U8);
+    cn_ir_type *zone_type = cn_ir_make_ptr_type(ctx->allocator, zone_inner);
+    cn_ir_type_destroy(ctx->allocator, zone_inner);
+
+    ir_statement->data.zone_stmt.zone_name = cn_ir_make_generated_name(ctx, "zone");
+    zone_scope.parent = scope;
+    zone_scope.zone_name = ir_statement->data.zone_stmt.zone_name;
+    cn_ir_scope_define(ctx, &zone_scope, ir_statement->data.zone_stmt.zone_name, zone_type, false);
+
+    zone_defer.parent = defer_parent;
+    cn_ir_defer_entry *release_entry = CN_ALLOC(ctx->allocator, cn_ir_defer_entry);
+    release_entry->kind = CN_IR_DEFER_ZONE_RELEASE;
+    release_entry->statement = NULL;
+    release_entry->zone_name = ir_statement->data.zone_stmt.zone_name;
+    release_entry->offset = statement->offset;
+    release_entry->captured_scope = NULL;
+    release_entry->next = zone_defer.entries;
+    zone_defer.entries = release_entry;
+
+    ir_statement->data.zone_stmt.body = cn_ir_lower_block(
+        ctx,
+        &zone_scope,
+        statement->data.zone_stmt.body,
+        true,
+        function_return_type,
+        &zone_defer
+    );
+    if (ir_statement->data.zone_stmt.body != NULL) {
+        cn_ir_stmt *release_stmt = cn_ir_make_zone_release_stmt(ctx, ir_statement->data.zone_stmt.zone_name, statement->offset);
+        if (release_stmt != NULL) {
+            cn_ir_stmt_list_push(ctx->allocator, &ir_statement->data.zone_stmt.body->statements, release_stmt);
+        }
+    }
+
+    cn_ir_release_defer_frame(ctx, &zone_defer);
+    cn_ir_scope_release(ctx, &zone_scope);
+    cn_ir_type_destroy(ctx->allocator, zone_type);
+    return ir_statement;
+}
+
 static cn_ir_stmt *cn_ir_lower_statement(
     cn_ir_lower_ctx *ctx,
     cn_ir_scope *scope,
@@ -1265,6 +1426,9 @@ static cn_ir_stmt *cn_ir_lower_statement(
     case CN_STMT_TRY:
         cn_ir_emit_internal_error(ctx, statement->offset, "typed IR lowering expected defer and try to be handled before statement lowering");
         return ir_statement;
+    case CN_STMT_ZONE:
+        CN_FREE(ctx->allocator, ir_statement);
+        return cn_ir_lower_zone_statement(ctx, scope, statement, function_return_type, defer_parent);
     case CN_STMT_IF:
         ir_statement->kind = CN_IR_STMT_IF;
         ir_statement->data.if_stmt.condition = cn_ir_lower_with_builtin_expected(
@@ -1378,6 +1542,7 @@ static cn_ir_block *cn_ir_lower_block(
 
     if (creates_scope) {
         scope.parent = parent;
+        scope.zone_name = parent != NULL ? parent->zone_name : cn_sv_from_parts(NULL, 0);
         active_scope = &scope;
     }
 
@@ -1387,7 +1552,10 @@ static cn_ir_block *cn_ir_lower_block(
         const cn_stmt *statement_ast = block->statements.items[i];
         if (statement_ast->kind == CN_STMT_DEFER) {
             cn_ir_defer_entry *entry = CN_ALLOC(ctx->allocator, cn_ir_defer_entry);
+            entry->kind = CN_IR_DEFER_AST_STATEMENT;
             entry->statement = statement_ast->data.defer_stmt.statement;
+            entry->zone_name = cn_sv_from_parts(NULL, 0);
+            entry->offset = statement_ast->offset;
             entry->captured_scope = cn_ir_capture_scope(ctx, active_scope);
             entry->next = defer_frame.entries;
             defer_frame.entries = entry;

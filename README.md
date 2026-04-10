@@ -5,7 +5,7 @@
 
 It is being built for people who want direct control, visible rules, and a compiler they can inspect end to end. The goal is to keep the language explicit and low-level while making the surface easier to read, reason about, and evolve.
 
-Current project status: `v0.4.4`
+Current project status: `v0.5.0`
 
 This repository currently ships the `cnegc` compiler with:
 
@@ -38,7 +38,7 @@ Valid:
 ```lang
 let x:int = 7;
 if x > 5 {
-    print(x);
+    println(x);
 }
 ```
 
@@ -47,7 +47,7 @@ Rejected:
 ```lang
 let x:int = 7;
 if x {
-    print(x);
+    println(x);
 }
 ```
 
@@ -73,13 +73,15 @@ Implemented today:
 - variables with `let` and `let mut`
 - `int`, `u8`, `bool`, `str`, `void`, `ptr`, `result`, and `slice`
 - `byte` as a readable alias for `u8`
+- source-level `null` for pointer values
 - `slice T` as a non-owning view over contiguous values
 - `if`, `else`, `while`, `loop`, and range `for`
 - narrow value-producing `if` expressions in the form `if cond { expr } else { expr }`
 - `defer expr;` and `defer free value;` for scope-exit cleanup
 - `try name = some_result();` inside `result ...` functions for unwrap-or-return flow
+- `zone { ... }` with explicit `zalloc T` for temporary scoped allocations
 - structs and public structs
-- arrays
+- arrays with constant sizes and `[value; N]` repeat literals
 - `slice T` views with `.length`, indexing, subslicing, and array-to-slice coercion
 - field access and indexing
 - module imports and module-qualified public calls
@@ -87,11 +89,13 @@ Implemented today:
 - `std.bytes.Buffer` as a growable byte container with append, get/set, and slice-view helpers
 - `std.ipc.Child` as a text-first child-process IPC handle with explicit `program + args` spawning, raw and line-oriented stdin writes, stdout/stderr reads, a one-call line request helper, wait, kill, and release helpers
 - `std.lines.Buffer` as a growable owned line container with borrowed reads and insert/remove helpers
+- `std.strings.from_int(int)` as a small owned-string formatter for integer output paths
 - `std.text.Builder` as a growable text builder that can accumulate strings and return a final owned `str`
+- `std.text.append_int(ptr std.text.Builder, int)` as a direct integer append helper for builders
 - a low-level terminal foundation through `std.term`, including capability queries, raw and timed byte/event reads, key/mouse/resize/paste events, cursor/scroll control, style/color control including RGB helpers, width helpers, buffer resize, and clipped diff rendering
 - beginner-first blocking IPv4 TCP and UDP helpers in `std.net`
 - a tiny real-window stress-test path through the experimental Linux-only `std.x11`
-- `alloc`, `addr`, `deref`, `free`, `ok`, `err`, `print`, and `input`
+- `alloc`, `addr`, `deref`, `free`, `ok`, `err`, `print`, `println`, and `input`
 - `str_copy` and `str_concat`
 - typed IR lowering
 - typed IR optimization and constant folding
@@ -102,6 +106,18 @@ Implemented today:
 - stronger result narrowing after checks like `if r.ok == false { return err; }`
 - raw backtick strings for multiline text without escape processing
 - parser recovery for continued syntax diagnostics after one error
+
+Current `main` rule:
+
+- `main` may currently return `int`, `u8`, `result int`, `result u8`, or `void`
+- `result`-returning `main` allows `try` at the top level
+- a successful `result int` or `result u8` becomes the process exit code
+- `return err;` from `main` currently maps to exit code `1`
+
+Current output rule:
+
+- `print(...)` writes without an implicit newline
+- `println(...)` writes the value and appends a newline
 
 Current integer rule:
 
@@ -122,8 +138,10 @@ Current integer rule:
 
 Current runtime boundary:
 
-- owned runtime strings are currently produced by `input()`, `std.io.read_line(...)`, `str_copy(...)`, `str_concat(...)`, `std.strings.copy(...)`, `std.strings.concat(...)`, successful `std.text.build(...)`, `std.term.read_paste(...)`, `std.term.term_name(...)`, `std.fs.read_text(...)`, `std.fs.cwd(...)`, `std.env.get(...)`, `std.path.join(...)`, `std.path.file_name(...)`, `std.path.stem(...)`, `std.path.extension(...)`, `std.path.parent(...)`, `std.net.join_host_port(...)`, `std.net.recv(...)`, the `host` and `data` fields from successful `std.net.udp_recv_from(...)`, successful `std.ipc.stdout_read(...)`, successful `std.ipc.stdout_read_line(...)`, successful `std.ipc.request_line(...)`, successful `std.ipc.stderr_read(...)`, successful `std.ipc.stderr_read_line(...)`, `std.process.platform(...)`, and `std.process.arch(...)`
+- owned runtime strings are currently produced by `input()`, `std.io.read_line(...)`, `str_copy(...)`, `str_concat(...)`, `std.strings.copy(...)`, `std.strings.concat(...)`, `std.strings.from_int(...)`, successful `std.text.build(...)`, `std.term.read_paste(...)`, `std.term.term_name(...)`, `std.fs.read_text(...)`, `std.fs.cwd(...)`, `std.env.get(...)`, `std.path.join(...)`, `std.path.file_name(...)`, `std.path.stem(...)`, `std.path.extension(...)`, `std.path.parent(...)`, `std.net.join_host_port(...)`, `std.net.recv(...)`, the `host` and `data` fields from successful `std.net.udp_recv_from(...)`, successful `std.ipc.stdout_read(...)`, successful `std.ipc.stdout_read_line(...)`, successful `std.ipc.request_line(...)`, successful `std.ipc.stderr_read(...)`, successful `std.ipc.stderr_read_line(...)`, `std.process.platform(...)`, and `std.process.arch(...)`
 - `free some_string;` safely releases tracked owned strings from those producers
+- string ownership stays explicit by design; `zone` adds temporary pointer allocation, not automatic string cleanup
+- zone is intentionally conservative in the current release: zone-owned values cannot cross ordinary function-call boundaries yet
 - the standard library/runtime surface is still intentionally small
 
 ## Build And Run Guide

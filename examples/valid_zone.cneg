@@ -1,0 +1,17 @@
+fn:int main() {
+    let mut total:int = 0;
+
+    zone {
+        let value:ptr int = zalloc int;
+        deref value = 7;
+        total = deref value;
+    }
+
+    zone {
+        let again:ptr int = zalloc int;
+        deref again = total + 5;
+        total = deref again;
+    }
+
+    return total;
+}

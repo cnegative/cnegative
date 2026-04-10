@@ -21,6 +21,7 @@ typedef struct cn_llvm_value {
     bool is_valid;
     bool is_void;
     bool is_constant;
+    bool is_null_constant;
     union {
         int64_t int_value;
         bool bool_value;
@@ -59,7 +60,9 @@ typedef struct cn_llvm_function_ctx {
 
 static const cn_ir_type g_llvm_bool_type = {CN_IR_TYPE_BOOL, {NULL, 0}, {NULL, 0}, NULL, 0};
 static const cn_ir_type g_llvm_int_type = {CN_IR_TYPE_INT, {NULL, 0}, {NULL, 0}, NULL, 0};
+static const cn_ir_type g_llvm_u8_type = {CN_IR_TYPE_U8, {NULL, 0}, {NULL, 0}, NULL, 0};
 static const cn_ir_type g_llvm_str_type = {CN_IR_TYPE_STR, {NULL, 0}, {NULL, 0}, NULL, 0};
+static const cn_ir_type g_llvm_ptr_u8_type = {CN_IR_TYPE_PTR, {NULL, 0}, {NULL, 0}, (cn_ir_type *)&g_llvm_u8_type, 0};
 
 static void cn_llvm_emit_type(FILE *stream, const cn_ir_type *type);
 static cn_llvm_value cn_llvm_lower_expression(cn_llvm_function_ctx *ctx, cn_llvm_scope *scope, const cn_ir_expr *expression);
@@ -71,6 +74,7 @@ static cn_llvm_address cn_llvm_lower_address(
 );
 static bool cn_llvm_validate_expression(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expression);
 static bool cn_llvm_validate_block(cn_llvm_emit_ctx *ctx, const cn_ir_block *block);
+static bool cn_llvm_collect_strings_from_block(cn_llvm_emit_ctx *ctx, const cn_ir_block *block);
 
 static const char *cn_llvm_host_target_triple(void) {
 #if defined(__x86_64__) || defined(_M_X64)
@@ -229,6 +233,7 @@ static bool cn_llvm_validate_type(cn_llvm_emit_ctx *ctx, const cn_ir_type *type,
     case CN_IR_TYPE_BOOL:
     case CN_IR_TYPE_STR:
     case CN_IR_TYPE_VOID:
+    case CN_IR_TYPE_NULL:
         return true;
     case CN_IR_TYPE_RESULT:
     case CN_IR_TYPE_PTR:
@@ -259,6 +264,7 @@ static bool cn_llvm_type_supports_equality(cn_llvm_emit_ctx *ctx, const cn_ir_ty
     case CN_IR_TYPE_U8:
     case CN_IR_TYPE_BOOL:
     case CN_IR_TYPE_PTR:
+    case CN_IR_TYPE_NULL:
     case CN_IR_TYPE_STR:
         return true;
     case CN_IR_TYPE_RESULT:
@@ -330,13 +336,23 @@ static bool cn_llvm_validate_call(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expre
     }
 
     if (expression->data.call.target_kind == CN_IR_CALL_BUILTIN) {
-        if (cn_llvm_call_matches(expression, NULL, "print")) {
-            if (!cn_llvm_validate_builtin_arguments(ctx, expression, 1, "unexpected builtin print arity")) {
+        if (cn_llvm_call_matches(expression, NULL, "print") ||
+            cn_llvm_call_matches(expression, NULL, "println")) {
+            const char *feature_name = cn_llvm_call_matches(expression, NULL, "print")
+                ? "unexpected builtin print arity"
+                : "unexpected builtin println arity";
+            if (!cn_llvm_validate_builtin_arguments(ctx, expression, 1, feature_name)) {
                 return false;
             }
 
             if (!cn_llvm_type_supports_print(expression->data.call.arguments.items[0]->type)) {
-                cn_llvm_emit_unsupported_feature(ctx->diagnostics, expression->offset, "print on non-display values");
+                cn_llvm_emit_unsupported_feature(
+                    ctx->diagnostics,
+                    expression->offset,
+                    cn_llvm_call_matches(expression, NULL, "print")
+                        ? "print on non-display values"
+                        : "println on non-display values"
+                );
                 return false;
             }
             return true;
@@ -401,6 +417,7 @@ static bool cn_llvm_validate_call(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expre
         }
 
         if (cn_llvm_call_matches(expression, "std.math", "abs") ||
+            cn_llvm_call_matches(expression, NULL, "__zone_release") ||
             cn_llvm_call_matches(expression, "std.math", "sign") ||
             cn_llvm_call_matches(expression, "std.math", "square") ||
             cn_llvm_call_matches(expression, "std.math", "cube") ||
@@ -424,6 +441,7 @@ static bool cn_llvm_validate_call(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expre
             cn_llvm_call_matches(expression, "std.x11", "pump") ||
             cn_llvm_call_matches(expression, "std.x11", "close") ||
             cn_llvm_call_matches(expression, "std.strings", "len") ||
+            cn_llvm_call_matches(expression, "std.strings", "from_int") ||
             cn_llvm_call_matches(expression, "std.parse", "to_int") ||
             cn_llvm_call_matches(expression, "std.parse", "to_bool") ||
             cn_llvm_call_matches(expression, "std.net", "is_ipv4") ||
@@ -501,6 +519,7 @@ static bool cn_llvm_validate_call(cn_llvm_emit_ctx *ctx, const cn_ir_expr *expre
             cn_llvm_call_matches(expression, "std.net", "send") ||
             cn_llvm_call_matches(expression, "std.net", "recv") ||
             cn_llvm_call_matches(expression, "std.text", "append") ||
+            cn_llvm_call_matches(expression, "std.text", "append_int") ||
             cn_llvm_call_matches(expression, "std.text", "push_byte") ||
             cn_llvm_call_matches(expression, "std.path", "join")) {
             return cn_llvm_validate_builtin_arguments(ctx, expression, 2, "unexpected builtin stdlib arity");
@@ -566,6 +585,7 @@ static bool cn_llvm_validate_expression(cn_llvm_emit_ctx *ctx, const cn_ir_expr 
     case CN_IR_EXPR_INT:
     case CN_IR_EXPR_BOOL:
     case CN_IR_EXPR_STRING:
+    case CN_IR_EXPR_NULL:
     case CN_IR_EXPR_LOCAL:
     case CN_IR_EXPR_ERR:
         return true;
@@ -620,6 +640,8 @@ static bool cn_llvm_validate_expression(cn_llvm_emit_ctx *ctx, const cn_ir_expr 
         return cn_llvm_validate_expression(ctx, expression->data.ok_expr.value);
     case CN_IR_EXPR_ALLOC:
         return cn_llvm_validate_type(ctx, expression->data.alloc_expr.alloc_type, expression->offset);
+    case CN_IR_EXPR_ZALLOC:
+        return cn_llvm_validate_type(ctx, expression->data.zalloc_expr.alloc_type, expression->offset);
     case CN_IR_EXPR_ADDR:
         return cn_llvm_validate_expression(ctx, expression->data.addr_expr.target);
     case CN_IR_EXPR_DEREF:
@@ -644,6 +666,8 @@ static bool cn_llvm_validate_statement(cn_llvm_emit_ctx *ctx, const cn_ir_stmt *
         return cn_llvm_validate_expression(ctx, statement->data.return_stmt.value);
     case CN_IR_STMT_EXPR:
         return cn_llvm_validate_expression(ctx, statement->data.expr_stmt.value);
+    case CN_IR_STMT_ZONE:
+        return cn_llvm_validate_block(ctx, statement->data.zone_stmt.body);
     case CN_IR_STMT_IF:
         return cn_llvm_validate_expression(ctx, statement->data.if_stmt.condition) &&
                cn_llvm_validate_block(ctx, statement->data.if_stmt.then_block) &&
@@ -722,6 +746,7 @@ static cn_llvm_value cn_llvm_invalid_value(const cn_ir_type *type) {
     value.is_valid = false;
     value.is_void = false;
     value.is_constant = false;
+    value.is_null_constant = false;
     value.data.int_value = 0;
     return value;
 }
@@ -740,6 +765,7 @@ static cn_llvm_value cn_llvm_constant_int(const cn_ir_type *type, int64_t value)
     result.is_valid = true;
     result.is_void = false;
     result.is_constant = true;
+    result.is_null_constant = false;
     result.data.int_value = value;
     return result;
 }
@@ -750,7 +776,19 @@ static cn_llvm_value cn_llvm_constant_bool(const cn_ir_type *type, bool value) {
     result.is_valid = true;
     result.is_void = false;
     result.is_constant = true;
+    result.is_null_constant = false;
     result.data.bool_value = value;
+    return result;
+}
+
+static cn_llvm_value cn_llvm_constant_null(const cn_ir_type *type) {
+    cn_llvm_value result;
+    result.type = type;
+    result.is_valid = true;
+    result.is_void = false;
+    result.is_constant = true;
+    result.is_null_constant = true;
+    result.data.int_value = 0;
     return result;
 }
 
@@ -760,6 +798,7 @@ static cn_llvm_value cn_llvm_register_value(const cn_ir_type *type, int reg_id) 
     result.is_valid = true;
     result.is_void = false;
     result.is_constant = false;
+    result.is_null_constant = false;
     result.data.reg_id = reg_id;
     return result;
 }
@@ -778,6 +817,7 @@ static cn_llvm_value cn_llvm_void_value(const cn_ir_type *type) {
     result.is_valid = true;
     result.is_void = true;
     result.is_constant = false;
+    result.is_null_constant = false;
     result.data.int_value = 0;
     return result;
 }
@@ -804,6 +844,10 @@ static void cn_llvm_emit_label_name(FILE *stream, int label_id) {
 
 static void cn_llvm_emit_value_ref(FILE *stream, cn_llvm_value value) {
     if (value.is_constant) {
+        if (value.is_null_constant) {
+            fputs("null", stream);
+            return;
+        }
         if (value.type->kind == CN_IR_TYPE_BOOL) {
             fputs(value.data.bool_value ? "1" : "0", stream);
         } else {
@@ -832,6 +876,7 @@ static void cn_llvm_emit_type(FILE *stream, const cn_ir_type *type) {
         break;
     case CN_IR_TYPE_STR:
     case CN_IR_TYPE_PTR:
+    case CN_IR_TYPE_NULL:
         fputs("ptr", stream);
         break;
     case CN_IR_TYPE_SLICE:
@@ -1112,7 +1157,8 @@ static cn_llvm_value cn_llvm_emit_value_equality(
     case CN_IR_TYPE_INT:
     case CN_IR_TYPE_U8:
     case CN_IR_TYPE_BOOL:
-    case CN_IR_TYPE_PTR: {
+    case CN_IR_TYPE_PTR:
+    case CN_IR_TYPE_NULL: {
         int reg_id = cn_llvm_next_temp(ctx);
         cn_llvm_emit_indent(ctx->emit->stream);
         cn_llvm_emit_reg(ctx->emit->stream, reg_id);
@@ -1982,9 +2028,17 @@ static cn_llvm_value cn_llvm_lower_builtin_call(cn_llvm_function_ctx *ctx, cn_ll
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_fs_cwd", arguments, 0);
     }
 
+    if (cn_llvm_call_matches(expression, NULL, "__zone_release")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_zone_release", arguments, 1);
+    }
+
     if (cn_llvm_call_matches(expression, NULL, "str_copy") ||
         cn_llvm_call_matches(expression, "std.strings", "copy")) {
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_dup_cstr", arguments, 1);
+    }
+
+    if (cn_llvm_call_matches(expression, "std.strings", "from_int")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_from_int", arguments, 1);
     }
 
     if (cn_llvm_call_matches(expression, NULL, "str_concat") ||
@@ -2440,6 +2494,10 @@ static cn_llvm_value cn_llvm_lower_builtin_call(cn_llvm_function_ctx *ctx, cn_ll
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_text_append", arguments, 2);
     }
 
+    if (cn_llvm_call_matches(expression, "std.text", "append_int")) {
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_text_append_int", arguments, 2);
+    }
+
     if (cn_llvm_call_matches(expression, "std.text", "push_byte")) {
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_text_push_byte", arguments, 2);
     }
@@ -2484,7 +2542,9 @@ static cn_llvm_value cn_llvm_lower_builtin_call(cn_llvm_function_ctx *ctx, cn_ll
         return cn_llvm_emit_named_call(ctx, expression->type, "@cn_path_parent", arguments, 1);
     }
 
-    if (!cn_llvm_call_matches(expression, NULL, "print")) {
+    bool is_print = cn_llvm_call_matches(expression, NULL, "print");
+    bool is_println = cn_llvm_call_matches(expression, NULL, "println");
+    if (!is_print && !is_println) {
         cn_llvm_emit_unsupported_feature(ctx->emit->diagnostics, expression->offset, "unknown builtin call target");
         return cn_llvm_invalid_value(expression->type);
     }
@@ -2492,7 +2552,7 @@ static cn_llvm_value cn_llvm_lower_builtin_call(cn_llvm_function_ctx *ctx, cn_ll
     cn_llvm_emit_indent(ctx->emit->stream);
     switch (arguments[0].type->kind) {
     case CN_IR_TYPE_INT:
-        fputs("call void @cn_print_int(i64 ", ctx->emit->stream);
+        fputs(is_print ? "call void @cn_write_int(i64 " : "call void @cn_print_int(i64 ", ctx->emit->stream);
         break;
     case CN_IR_TYPE_U8: {
         int widened_reg_id = cn_llvm_next_temp(ctx);
@@ -2501,19 +2561,23 @@ static cn_llvm_value cn_llvm_lower_builtin_call(cn_llvm_function_ctx *ctx, cn_ll
         cn_llvm_emit_value_ref(ctx->emit->stream, arguments[0]);
         fputs(" to i64\n", ctx->emit->stream);
         cn_llvm_emit_indent(ctx->emit->stream);
-        fputs("call void @cn_print_int(i64 ", ctx->emit->stream);
+        fputs(is_print ? "call void @cn_write_int(i64 " : "call void @cn_print_int(i64 ", ctx->emit->stream);
         cn_llvm_emit_reg(ctx->emit->stream, widened_reg_id);
         fputs(")\n", ctx->emit->stream);
         return cn_llvm_void_value(expression->type);
     }
     case CN_IR_TYPE_BOOL:
-        fputs("call void @cn_print_bool(i1 ", ctx->emit->stream);
+        fputs(is_print ? "call void @cn_write_bool(i1 " : "call void @cn_print_bool(i1 ", ctx->emit->stream);
         break;
     case CN_IR_TYPE_STR:
-        fputs("call void @cn_print_str(ptr ", ctx->emit->stream);
+        fputs(is_print ? "call void @cn_write_str(ptr " : "call void @cn_print_str(ptr ", ctx->emit->stream);
         break;
     default:
-        cn_llvm_emit_unsupported_feature(ctx->emit->diagnostics, expression->offset, "print on non-display values");
+        cn_llvm_emit_unsupported_feature(
+            ctx->emit->diagnostics,
+            expression->offset,
+            is_print ? "print on non-display values" : "println on non-display values"
+        );
         return cn_llvm_invalid_value(expression->type);
     }
 
@@ -2594,6 +2658,8 @@ static cn_llvm_value cn_llvm_lower_expression(cn_llvm_function_ctx *ctx, cn_llvm
         return cn_llvm_constant_bool(expression->type, expression->data.bool_value);
     case CN_IR_EXPR_STRING:
         return cn_llvm_lower_string_literal(ctx, expression);
+    case CN_IR_EXPR_NULL:
+        return cn_llvm_constant_null(expression->type);
     case CN_IR_EXPR_LOCAL: {
         const cn_llvm_binding *binding = cn_llvm_scope_lookup(scope, expression->data.local_name);
         if (binding == NULL) {
@@ -2749,6 +2815,27 @@ static cn_llvm_value cn_llvm_lower_expression(cn_llvm_function_ctx *ctx, cn_llvm
         fputs(")\n", ctx->emit->stream);
         return cn_llvm_register_value(expression->type, reg_id);
     }
+    case CN_IR_EXPR_ZALLOC: {
+        cn_llvm_value size_value = cn_llvm_emit_sizeof(ctx, expression->data.zalloc_expr.alloc_type);
+        cn_llvm_value zone_value = cn_llvm_lower_expression(
+            ctx,
+            scope,
+            &(cn_ir_expr){
+                .kind = CN_IR_EXPR_LOCAL,
+                .type = (cn_ir_type *)&g_llvm_ptr_u8_type,
+                .offset = expression->offset,
+                .data.local_name = expression->data.zalloc_expr.zone_name
+            }
+        );
+        if (!zone_value.is_valid) {
+            return cn_llvm_invalid_value(expression->type);
+        }
+
+        cn_llvm_value arguments[2];
+        arguments[0] = zone_value;
+        arguments[1] = size_value;
+        return cn_llvm_emit_named_call(ctx, expression->type, "@cn_zone_alloc", arguments, 2);
+    }
     case CN_IR_EXPR_ADDR: {
         cn_llvm_address address = cn_llvm_lower_address(ctx, scope, expression->data.addr_expr.target, true);
         if (!address.is_valid) {
@@ -2818,6 +2905,21 @@ static bool cn_llvm_emit_statement(
     case CN_IR_STMT_EXPR: {
         cn_llvm_value value = cn_llvm_lower_expression(ctx, scope, statement->data.expr_stmt.value);
         return value.is_valid;
+    }
+    case CN_IR_STMT_ZONE: {
+        cn_llvm_scope zone_scope = {0};
+        int zone_ptr = cn_llvm_emit_alloca(ctx, &g_llvm_ptr_u8_type);
+        cn_llvm_value zone_value = cn_llvm_emit_named_call(ctx, &g_llvm_ptr_u8_type, "@cn_zone_enter", NULL, 0);
+        if (!zone_value.is_valid) {
+            return false;
+        }
+
+        cn_llvm_emit_store(ctx, zone_value, zone_ptr);
+        zone_scope.parent = scope;
+        cn_llvm_scope_define(ctx->emit, &zone_scope, statement->data.zone_stmt.zone_name, &g_llvm_ptr_u8_type, zone_ptr);
+        bool ok = cn_llvm_emit_block(ctx, &zone_scope, statement->data.zone_stmt.body, true);
+        cn_llvm_scope_release(ctx->emit, &zone_scope);
+        return ok;
     }
     case CN_IR_STMT_IF: {
         int then_label = cn_llvm_next_label(ctx);
@@ -3073,6 +3175,8 @@ static bool cn_llvm_collect_strings_from_expression(cn_llvm_emit_ctx *ctx, const
     }
 
     switch (expression->kind) {
+    case CN_IR_EXPR_NULL:
+        return true;
     case CN_IR_EXPR_STRING:
         return cn_llvm_collect_string(ctx, expression->data.string_value);
     case CN_IR_EXPR_UNARY:
@@ -3124,6 +3228,7 @@ static bool cn_llvm_collect_strings_from_expression(cn_llvm_emit_ctx *ctx, const
         return cn_llvm_collect_strings_from_expression(ctx, expression->data.addr_expr.target);
     case CN_IR_EXPR_DEREF:
         return cn_llvm_collect_strings_from_expression(ctx, expression->data.deref_expr.target);
+    case CN_IR_EXPR_ZALLOC:
     case CN_IR_EXPR_INT:
     case CN_IR_EXPR_BOOL:
     case CN_IR_EXPR_LOCAL:
@@ -3147,6 +3252,8 @@ static bool cn_llvm_collect_strings_from_statement(cn_llvm_emit_ctx *ctx, const 
                cn_llvm_collect_strings_from_expression(ctx, statement->data.return_stmt.value);
     case CN_IR_STMT_EXPR:
         return cn_llvm_collect_strings_from_expression(ctx, statement->data.expr_stmt.value);
+    case CN_IR_STMT_ZONE:
+        return cn_llvm_collect_strings_from_block(ctx, statement->data.zone_stmt.body);
     case CN_IR_STMT_FREE:
         return cn_llvm_collect_strings_from_expression(ctx, statement->data.free_stmt.value);
     case CN_IR_STMT_IF:
@@ -3281,6 +3388,8 @@ static bool cn_llvm_expr_uses_builtin_module(const cn_ir_expr *expression, const
     }
 
     switch (expression->kind) {
+    case CN_IR_EXPR_NULL:
+        return false;
     case CN_IR_EXPR_UNARY:
         return cn_llvm_expr_uses_builtin_module(expression->data.unary.operand, module_name);
     case CN_IR_EXPR_BINARY:
@@ -3334,6 +3443,7 @@ static bool cn_llvm_expr_uses_builtin_module(const cn_ir_expr *expression, const
         return cn_llvm_expr_uses_builtin_module(expression->data.addr_expr.target, module_name);
     case CN_IR_EXPR_DEREF:
         return cn_llvm_expr_uses_builtin_module(expression->data.deref_expr.target, module_name);
+    case CN_IR_EXPR_ZALLOC:
     case CN_IR_EXPR_INT:
     case CN_IR_EXPR_BOOL:
     case CN_IR_EXPR_STRING:
@@ -3373,6 +3483,8 @@ static bool cn_llvm_stmt_uses_builtin_module(const cn_ir_stmt *statement, const 
         return cn_llvm_expr_uses_builtin_module(statement->data.return_stmt.value, module_name);
     case CN_IR_STMT_EXPR:
         return cn_llvm_expr_uses_builtin_module(statement->data.expr_stmt.value, module_name);
+    case CN_IR_STMT_ZONE:
+        return cn_llvm_block_uses_builtin_module(statement->data.zone_stmt.body, module_name);
     case CN_IR_STMT_IF:
         return cn_llvm_expr_uses_builtin_module(statement->data.if_stmt.condition, module_name) ||
                cn_llvm_block_uses_builtin_module(statement->data.if_stmt.then_block, module_name) ||
@@ -3441,13 +3553,21 @@ static bool cn_llvm_emit_entry_wrapper(cn_llvm_emit_ctx *ctx) {
         return false;
     }
 
-    if (entry->return_type->kind != CN_IR_TYPE_INT &&
-        entry->return_type->kind != CN_IR_TYPE_U8 &&
-        entry->return_type->kind != CN_IR_TYPE_VOID) {
+    bool entry_returns_plain =
+        entry->return_type->kind == CN_IR_TYPE_INT ||
+        entry->return_type->kind == CN_IR_TYPE_U8 ||
+        entry->return_type->kind == CN_IR_TYPE_VOID;
+    bool entry_returns_result =
+        entry->return_type->kind == CN_IR_TYPE_RESULT &&
+        entry->return_type->inner != NULL &&
+        (entry->return_type->inner->kind == CN_IR_TYPE_INT ||
+         entry->return_type->inner->kind == CN_IR_TYPE_U8);
+
+    if (!entry_returns_plain && !entry_returns_result) {
         cn_llvm_emit_unsupported_feature(
             ctx->diagnostics,
             entry->offset,
-            "main functions that do not return int, u8, or void"
+            "main functions that do not return int, u8, void, result int, or result u8"
         );
         return false;
     }
@@ -3465,12 +3585,36 @@ static bool cn_llvm_emit_entry_wrapper(cn_llvm_emit_ctx *ctx) {
         fputs("()\n", ctx->stream);
         fputs("  %entry.status = zext i8 %entry.result to i32\n", ctx->stream);
         fputs("  ret i32 %entry.status\n", ctx->stream);
-    } else {
+    } else if (entry->return_type->kind == CN_IR_TYPE_INT) {
         fputs("  %entry.result = call i64 ", ctx->stream);
         cn_llvm_emit_function_symbol(ctx->stream, entry->module_name, entry->name);
         fputs("()\n", ctx->stream);
         fputs("  %entry.status = trunc i64 %entry.result to i32\n", ctx->stream);
         fputs("  ret i32 %entry.status\n", ctx->stream);
+    } else if (entry->return_type->inner->kind == CN_IR_TYPE_U8) {
+        fputs("  %entry.result = call { i1, i8 } ", ctx->stream);
+        cn_llvm_emit_function_symbol(ctx->stream, entry->module_name, entry->name);
+        fputs("()\n", ctx->stream);
+        fputs("  %entry.ok = extractvalue { i1, i8 } %entry.result, 0\n", ctx->stream);
+        fputs("  br i1 %entry.ok, label %entry.ok.block, label %entry.err.block\n", ctx->stream);
+        fputs("entry.ok.block:\n", ctx->stream);
+        fputs("  %entry.value = extractvalue { i1, i8 } %entry.result, 1\n", ctx->stream);
+        fputs("  %entry.status = zext i8 %entry.value to i32\n", ctx->stream);
+        fputs("  ret i32 %entry.status\n", ctx->stream);
+        fputs("entry.err.block:\n", ctx->stream);
+        fputs("  ret i32 1\n", ctx->stream);
+    } else {
+        fputs("  %entry.result = call { i1, i64 } ", ctx->stream);
+        cn_llvm_emit_function_symbol(ctx->stream, entry->module_name, entry->name);
+        fputs("()\n", ctx->stream);
+        fputs("  %entry.ok = extractvalue { i1, i64 } %entry.result, 0\n", ctx->stream);
+        fputs("  br i1 %entry.ok, label %entry.ok.block, label %entry.err.block\n", ctx->stream);
+        fputs("entry.ok.block:\n", ctx->stream);
+        fputs("  %entry.value = extractvalue { i1, i64 } %entry.result, 1\n", ctx->stream);
+        fputs("  %entry.status = trunc i64 %entry.value to i32\n", ctx->stream);
+        fputs("  ret i32 %entry.status\n", ctx->stream);
+        fputs("entry.err.block:\n", ctx->stream);
+        fputs("  ret i32 1\n", ctx->stream);
     }
     fputs("}\n", ctx->stream);
     return true;

@@ -30,6 +30,7 @@ static cn_ir_type_kind cn_ir_type_kind_from_ast(cn_type_kind kind) {
     case CN_TYPE_BOOL: return CN_IR_TYPE_BOOL;
     case CN_TYPE_STR: return CN_IR_TYPE_STR;
     case CN_TYPE_VOID: return CN_IR_TYPE_VOID;
+    case CN_TYPE_NULL: return CN_IR_TYPE_NULL;
     case CN_TYPE_RESULT: return CN_IR_TYPE_RESULT;
     case CN_TYPE_PTR: return CN_IR_TYPE_PTR;
     case CN_TYPE_SLICE: return CN_IR_TYPE_SLICE;
@@ -109,6 +110,9 @@ void cn_ir_type_describe(const cn_ir_type *type, char *buffer, size_t buffer_siz
         break;
     case CN_IR_TYPE_VOID:
         snprintf(buffer, buffer_size, "void");
+        break;
+    case CN_IR_TYPE_NULL:
+        snprintf(buffer, buffer_size, "null");
         break;
     case CN_IR_TYPE_RESULT: {
         char inner[128];
@@ -421,6 +425,9 @@ static void cn_ir_expr_destroy(cn_allocator *allocator, cn_ir_expr *expression) 
     case CN_IR_EXPR_ALLOC:
         cn_ir_type_destroy(allocator, expression->data.alloc_expr.alloc_type);
         break;
+    case CN_IR_EXPR_ZALLOC:
+        cn_ir_type_destroy(allocator, expression->data.zalloc_expr.alloc_type);
+        break;
     case CN_IR_EXPR_ADDR:
         cn_ir_expr_destroy(allocator, expression->data.addr_expr.target);
         break;
@@ -430,6 +437,7 @@ static void cn_ir_expr_destroy(cn_allocator *allocator, cn_ir_expr *expression) 
     case CN_IR_EXPR_INT:
     case CN_IR_EXPR_BOOL:
     case CN_IR_EXPR_STRING:
+    case CN_IR_EXPR_NULL:
     case CN_IR_EXPR_LOCAL:
     case CN_IR_EXPR_ERR:
         break;
@@ -457,6 +465,9 @@ static void cn_ir_stmt_destroy(cn_allocator *allocator, cn_ir_stmt *statement) {
         break;
     case CN_IR_STMT_EXPR:
         cn_ir_expr_destroy(allocator, statement->data.expr_stmt.value);
+        break;
+    case CN_IR_STMT_ZONE:
+        cn_ir_block_destroy(allocator, statement->data.zone_stmt.body);
         break;
     case CN_IR_STMT_IF:
         cn_ir_expr_destroy(allocator, statement->data.if_stmt.condition);
@@ -647,6 +658,9 @@ static void cn_ir_dump_expr(FILE *stream, const cn_ir_expr *expression) {
     case CN_IR_EXPR_STRING:
         fprintf(stream, "\"%.*s\"", (int)expression->data.string_value.length, expression->data.string_value.data);
         break;
+    case CN_IR_EXPR_NULL:
+        fputs("null", stream);
+        break;
     case CN_IR_EXPR_LOCAL:
         fprintf(stream, "%.*s", (int)expression->data.local_name.length, expression->data.local_name.data);
         break;
@@ -753,6 +767,18 @@ static void cn_ir_dump_expr(FILE *stream, const cn_ir_expr *expression) {
         fprintf(stream, "alloc %s", type_name);
         break;
     }
+    case CN_IR_EXPR_ZALLOC: {
+        char type_name[128];
+        cn_ir_type_describe(expression->data.zalloc_expr.alloc_type, type_name, sizeof(type_name));
+        fprintf(
+            stream,
+            "zalloc[%.*s] %s",
+            (int)expression->data.zalloc_expr.zone_name.length,
+            expression->data.zalloc_expr.zone_name.data,
+            type_name
+        );
+        break;
+    }
     case CN_IR_EXPR_ADDR:
         fputs("addr ", stream);
         cn_ir_dump_expr(stream, expression->data.addr_expr.target);
@@ -803,6 +829,16 @@ static void cn_ir_dump_stmt(FILE *stream, const cn_ir_stmt *statement, size_t de
     case CN_IR_STMT_EXPR:
         cn_ir_dump_expr(stream, statement->data.expr_stmt.value);
         fputs(";\n", stream);
+        break;
+    case CN_IR_STMT_ZONE:
+        fprintf(
+            stream,
+            "zone[%.*s] ",
+            (int)statement->data.zone_stmt.zone_name.length,
+            statement->data.zone_stmt.zone_name.data
+        );
+        cn_ir_dump_block(stream, statement->data.zone_stmt.body, depth);
+        fputc('\n', stream);
         break;
     case CN_IR_STMT_IF:
         fputs("if ", stream);

@@ -1,0 +1,12 @@
+fn:ptr int leak() {
+    zone {
+        let value:ptr int = zalloc int;
+        return value;
+    }
+
+    return null;
+}
+
+fn:int main() {
+    return 0;
+}

@@ -80,6 +80,26 @@ void cn_llvm_emit_runtime_text(FILE *stream) {
         stream
     );
     fputs(
+        "define private { i1, i1 } @cn_text_append_int(ptr %builder, i64 %value) {\n"
+        "entry:\n"
+        "  %buffer = alloca [32 x i8]\n"
+        "  %buffer.ptr = getelementptr inbounds [32 x i8], ptr %buffer, i64 0, i64 0\n"
+        "  %fmt = getelementptr inbounds [5 x i8], ptr @.cn.int_str_fmt, i64 0, i64 0\n"
+        "  %written = call i32 (ptr, i64, ptr, ...) @snprintf(ptr %buffer.ptr, i64 32, ptr %fmt, i64 %value)\n"
+        "  %ok = icmp sge i32 %written, 0\n"
+        "  br i1 %ok, label %append, label %return.err\n"
+        "append:\n"
+        "  %length = sext i32 %written to i64\n"
+        "  %slice.ptr = insertvalue { ptr, i64 } zeroinitializer, ptr %buffer.ptr, 0\n"
+        "  %slice = insertvalue { ptr, i64 } %slice.ptr, i64 %length, 1\n"
+        "  %result = call { i1, i1 } @cn_bytes_append(ptr %builder, { ptr, i64 } %slice)\n"
+        "  ret { i1, i1 } %result\n"
+        "return.err:\n"
+        "  ret { i1, i1 } zeroinitializer\n"
+        "}\n\n",
+        stream
+    );
+    fputs(
         "define private { i1, ptr } @cn_text_build(ptr %builder) {\n"
         "entry:\n"
         "  %has.builder = icmp ne ptr %builder, null\n"

@@ -80,14 +80,17 @@ static cn_token_kind cn_keyword_kind(cn_strview text) {
     if (cn_sv_eq_cstr(text, "err")) return CN_TOKEN_ERR;
     if (cn_sv_eq_cstr(text, "ptr")) return CN_TOKEN_PTR;
     if (cn_sv_eq_cstr(text, "alloc")) return CN_TOKEN_ALLOC;
+    if (cn_sv_eq_cstr(text, "zalloc")) return CN_TOKEN_ZALLOC;
     if (cn_sv_eq_cstr(text, "addr")) return CN_TOKEN_ADDR;
     if (cn_sv_eq_cstr(text, "deref")) return CN_TOKEN_DEREF;
     if (cn_sv_eq_cstr(text, "free")) return CN_TOKEN_FREE;
     if (cn_sv_eq_cstr(text, "defer")) return CN_TOKEN_DEFER;
     if (cn_sv_eq_cstr(text, "try")) return CN_TOKEN_TRY;
+    if (cn_sv_eq_cstr(text, "zone")) return CN_TOKEN_ZONE;
     if (cn_sv_eq_cstr(text, "slice")) return CN_TOKEN_SLICE;
     if (cn_sv_eq_cstr(text, "true")) return CN_TOKEN_TRUE;
     if (cn_sv_eq_cstr(text, "false")) return CN_TOKEN_FALSE;
+    if (cn_sv_eq_cstr(text, "null")) return CN_TOKEN_NULL;
     return CN_TOKEN_IDENTIFIER;
 }
 

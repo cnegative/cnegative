@@ -68,12 +68,19 @@ cn_verify_llvm_ir() {
 ./build/cnegc check examples/valid_stdlib_term_render.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_u8.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_slice.cneg >"$tmp_valid"
+./build/cnegc check examples/valid_null.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_stdlib_bytes_text.cneg >"$tmp_valid"
+./build/cnegc check examples/valid_result_main_text.cneg >"$tmp_valid"
+./build/cnegc check examples/valid_printing.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_stdlib_ipc.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_stdlib_lines.cneg >"$tmp_valid"
+./build/cnegc check examples/array_repeat/main.cneg >"$tmp_valid"
+./build/cnegc check examples/valid_result_guard_index.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_if_expr.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_defer.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_defer_loop.cneg >"$tmp_valid"
+./build/cnegc check examples/valid_zone.cneg >"$tmp_valid"
+./build/cnegc check examples/valid_zone_struct_copy.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_try.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_raw_strings.cneg >"$tmp_valid"
 ./build/cnegc check examples/module_roots/main.cneg >"$tmp_valid"
@@ -442,6 +449,35 @@ if ! grep -q 'std.text.build' "$tmp_ir"; then
     exit 1
 fi
 
+./build/cnegc ir examples/valid_result_main_text.cneg >"$tmp_ir"
+if ! grep -q 'fn valid_result_main_text.main() -> result int' "$tmp_ir"; then
+    printf 'expected result-returning main signature in typed IR for valid_result_main_text.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.strings.from_int' "$tmp_ir"; then
+    printf 'expected std.strings.from_int builtin lowering in typed IR for valid_result_main_text.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'std.text.append_int' "$tmp_ir"; then
+    printf 'expected std.text.append_int builtin lowering in typed IR for valid_result_main_text.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+
+./build/cnegc ir examples/array_repeat/main.cneg >"$tmp_ir"
+if ! grep -q 'let values:int\[4\] = \[7, 7, 7, 7\];' "$tmp_ir"; then
+    printf 'expected repeat-array lowering with resolved imported constant size in typed IR for array_repeat/main.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'let ptrs:ptr int\[4\] = \[null, null, null, null\];' "$tmp_ir"; then
+    printf 'expected ptr int[4] to lower as an array of pointers in typed IR for array_repeat/main.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+
 ./build/cnegc ir examples/valid_stdlib_lines.cneg >"$tmp_ir"
 if ! grep -q 'std.lines.insert' "$tmp_ir"; then
     printf 'expected std.lines.insert builtin lowering in typed IR for valid_stdlib_lines.cneg\n'
@@ -517,6 +553,25 @@ if ! grep -q 'while (index < 3) {' "$tmp_ir"; then
     exit 1
 fi
 
+./build/cnegc ir examples/valid_zone.cneg >"$tmp_ir"
+if ! grep -q 'zone\[' "$tmp_ir"; then
+    printf 'expected zone statement lowering in typed IR for valid_zone.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'zalloc\[' "$tmp_ir"; then
+    printf 'expected zalloc lowering in typed IR for valid_zone.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+
+./build/cnegc ir examples/valid_zone_struct_copy.cneg >"$tmp_ir"
+if ! grep -q 'holder.count' "$tmp_ir"; then
+    printf 'expected plain non-pointer field access to remain valid in typed IR for valid_zone_struct_copy.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+
 ./build/cnegc ir examples/valid_try.cneg >"$tmp_ir"
 if ! grep -q 'let __cn_try_' "$tmp_ir"; then
     printf 'expected try lowering to create a temporary result binding in typed IR for valid_try.cneg\n'
@@ -525,6 +580,18 @@ if ! grep -q 'let __cn_try_' "$tmp_ir"; then
 fi
 if ! grep -q 'if !__cn_try_' "$tmp_ir"; then
     printf 'expected try lowering to branch on .ok in typed IR for valid_try.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+
+./build/cnegc ir examples/valid_result_guard_index.cneg >"$tmp_ir"
+if ! grep -q 'if loaded.ok {' "$tmp_ir"; then
+    printf 'expected guarded if expression to remain present in typed IR for valid_result_guard_index.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'while loaded.ok {' "$tmp_ir"; then
+    printf 'expected guarded while loop to remain present in typed IR for valid_result_guard_index.cneg\n'
     cat "$tmp_ir"
     exit 1
 fi
@@ -674,6 +741,24 @@ if ! grep -q '@cn_fs_append_text' "$tmp_ll"; then
 fi
 if ! grep -q '@cn_fs_rename' "$tmp_ll"; then
     printf 'expected fs rename lowering in LLVM IR for valid_stdlib_io_fs.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+cn_verify_llvm_ir "$tmp_ll" "$tmp_bc"
+
+./build/cnegc llvm-ir examples/valid_printing.cneg >"$tmp_ll"
+if ! grep -q '@cn_write_int' "$tmp_ll"; then
+    printf 'expected builtin print to lower through no-newline int writer in LLVM IR for valid_printing.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_print_int' "$tmp_ll"; then
+    printf 'expected builtin println to lower through newline int printer in LLVM IR for valid_printing.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_write_bool' "$tmp_ll"; then
+    printf 'expected builtin print to lower through no-newline bool writer in LLVM IR for valid_printing.cneg\n'
     cat "$tmp_ll"
     exit 1
 fi
@@ -975,6 +1060,23 @@ if ! grep -q '@cn_bytes_append' "$tmp_ll"; then
 fi
 if ! grep -q '@cn_text_build' "$tmp_ll"; then
     printf 'expected std.text build runtime lowering in LLVM IR for valid_stdlib_bytes_text.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+
+./build/cnegc llvm-ir examples/valid_result_main_text.cneg >"$tmp_ll"
+if ! grep -q '@cn_from_int' "$tmp_ll"; then
+    printf 'expected std.strings.from_int runtime lowering in LLVM IR for valid_result_main_text.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q '@cn_text_append_int' "$tmp_ll"; then
+    printf 'expected std.text.append_int runtime lowering in LLVM IR for valid_result_main_text.cneg\n'
+    cat "$tmp_ll"
+    exit 1
+fi
+if ! grep -q 'extractvalue { i1, i64 } %entry.result, 0' "$tmp_ll"; then
+    printf 'expected result-returning main entry wrapper lowering in LLVM IR for valid_result_main_text.cneg\n'
     cat "$tmp_ll"
     exit 1
 fi
@@ -1326,6 +1428,66 @@ if ! grep -q 'E3034' "$tmp_invalid"; then
     exit 1
 fi
 
+if ./build/cnegc check examples/invalid_zalloc_outside_zone.cneg >"$tmp_invalid" 2>&1; then
+    printf 'expected invalid_zalloc_outside_zone.cneg to fail\n'
+    exit 1
+fi
+if ! grep -q 'E3041' "$tmp_invalid"; then
+    printf 'expected E3041 in invalid_zalloc_outside_zone.cneg output\n'
+    cat "$tmp_invalid"
+    exit 1
+fi
+
+if ./build/cnegc check examples/invalid_zone_return.cneg >"$tmp_invalid" 2>&1; then
+    printf 'expected invalid_zone_return.cneg to fail\n'
+    exit 1
+fi
+if ! grep -q 'E3042' "$tmp_invalid"; then
+    printf 'expected E3042 in invalid_zone_return.cneg output\n'
+    cat "$tmp_invalid"
+    exit 1
+fi
+
+if ./build/cnegc check examples/invalid_zone_free.cneg >"$tmp_invalid" 2>&1; then
+    printf 'expected invalid_zone_free.cneg to fail\n'
+    exit 1
+fi
+if ! grep -q 'E3043' "$tmp_invalid"; then
+    printf 'expected E3043 in invalid_zone_free.cneg output\n'
+    cat "$tmp_invalid"
+    exit 1
+fi
+
+if ./build/cnegc check examples/invalid_zone_escape_assign.cneg >"$tmp_invalid" 2>&1; then
+    printf 'expected invalid_zone_escape_assign.cneg to fail\n'
+    exit 1
+fi
+if ! grep -q 'E3044' "$tmp_invalid"; then
+    printf 'expected E3044 in invalid_zone_escape_assign.cneg output\n'
+    cat "$tmp_invalid"
+    exit 1
+fi
+
+if ./build/cnegc check examples/invalid_zone_call_arg.cneg >"$tmp_invalid" 2>&1; then
+    printf 'expected invalid_zone_call_arg.cneg to fail\n'
+    exit 1
+fi
+if ! grep -q 'E3045' "$tmp_invalid"; then
+    printf 'expected E3045 in invalid_zone_call_arg.cneg output\n'
+    cat "$tmp_invalid"
+    exit 1
+fi
+
+if ./build/cnegc check examples/invalid_zone_struct_return.cneg >"$tmp_invalid" 2>&1; then
+    printf 'expected invalid_zone_struct_return.cneg to fail\n'
+    exit 1
+fi
+if ! grep -q 'E3042' "$tmp_invalid"; then
+    printf 'expected E3042 in invalid_zone_struct_return.cneg output\n'
+    cat "$tmp_invalid"
+    exit 1
+fi
+
 ./build/cnegc obj examples/valid_basic.cneg "$tmp_obj" >"$tmp_valid"
 if [ ! -s "$tmp_obj" ]; then
     printf 'expected object output for valid_basic.cneg\n'
@@ -1366,6 +1528,28 @@ if [ "$status" -ne 3 ]; then
 fi
 if ! grep -q '^3$' "$tmp_run"; then
     printf 'expected valid_llvm_backend binary to print 3\n'
+    cat "$tmp_run"
+    exit 1
+fi
+
+./build/cnegc build examples/valid_zone.cneg "$tmp_bin" >"$tmp_valid"
+set +e
+"$tmp_bin" >"$tmp_run"
+status=$?
+set -e
+if [ "$status" -ne 12 ]; then
+    printf 'expected valid_zone binary to exit 12, got %d\n' "$status"
+    cat "$tmp_run"
+    exit 1
+fi
+
+./build/cnegc build examples/valid_zone_struct_copy.cneg "$tmp_bin" >"$tmp_valid"
+set +e
+"$tmp_bin" >"$tmp_run"
+status=$?
+set -e
+if [ "$status" -ne 9 ]; then
+    printf 'expected valid_zone_struct_copy binary to exit 9, got %d\n' "$status"
     cat "$tmp_run"
     exit 1
 fi
@@ -1607,6 +1791,17 @@ if [ "$status" -ne 23 ]; then
     exit 1
 fi
 
+./build/cnegc build examples/valid_null.cneg "$tmp_bin" >"$tmp_valid"
+set +e
+"$tmp_bin" >"$tmp_run"
+status=$?
+set -e
+if [ "$status" -ne 7 ]; then
+    printf 'expected valid_null binary to exit 7, got %d\n' "$status"
+    cat "$tmp_run"
+    exit 1
+fi
+
 ./build/cnegc build examples/valid_stdlib_bytes_text.cneg "$tmp_bin" >"$tmp_valid"
 set +e
 "$tmp_bin" >"$tmp_run"
@@ -1623,6 +1818,53 @@ if ! grep -q 'slice ready!' "$tmp_run"; then
     exit 1
 fi
 
+./build/cnegc build examples/valid_result_main_text.cneg "$tmp_bin" >"$tmp_valid"
+set +e
+"$tmp_bin" >"$tmp_run"
+status=$?
+set -e
+if [ "$status" -ne 43 ]; then
+    printf 'expected valid_result_main_text binary to exit 43, got %d\n' "$status"
+    cat "$tmp_run"
+    exit 1
+fi
+if ! grep -q '^answer=42; next=43$' "$tmp_run"; then
+    printf 'expected valid_result_main_text binary to print built numeric text output\n'
+    cat "$tmp_run"
+    exit 1
+fi
+
+./build/cnegc build examples/valid_printing.cneg "$tmp_bin" >"$tmp_valid"
+set +e
+"$tmp_bin" >"$tmp_run"
+status=$?
+set -e
+if [ "$status" -ne 0 ]; then
+    printf 'expected valid_printing binary to exit 0, got %d\n' "$status"
+    cat "$tmp_run"
+    exit 1
+fi
+printf 'A7false!\n3\ntrue\n' >"$tmp_valid"
+if ! cmp -s "$tmp_valid" "$tmp_run"; then
+    printf 'expected exact print/println output for valid_printing.cneg\n'
+    printf 'expected:\n'
+    cat "$tmp_valid"
+    printf 'actual:\n'
+    cat "$tmp_run"
+    exit 1
+fi
+
+./build/cnegc build examples/array_repeat/main.cneg "$tmp_bin" >"$tmp_valid"
+set +e
+"$tmp_bin" >"$tmp_run"
+status=$?
+set -e
+if [ "$status" -ne 28 ]; then
+    printf 'expected array_repeat/main.cneg binary to exit 28, got %d\n' "$status"
+    cat "$tmp_run"
+    exit 1
+fi
+
 ./build/cnegc build examples/valid_stdlib_lines.cneg "$tmp_bin" >"$tmp_valid"
 set +e
 "$tmp_bin" >"$tmp_run"
@@ -1635,6 +1877,17 @@ if [ "$status" -ne 32 ]; then
 fi
 if ! grep -q '^beta$' "$tmp_run"; then
     printf 'expected valid_stdlib_lines binary to print borrowed line output\n'
+    cat "$tmp_run"
+    exit 1
+fi
+
+./build/cnegc build examples/valid_result_guard_index.cneg "$tmp_bin" >"$tmp_valid"
+set +e
+"$tmp_bin" >"$tmp_run"
+status=$?
+set -e
+if [ "$status" -ne 30 ]; then
+    printf 'expected valid_result_guard_index binary to exit 30, got %d\n' "$status"
     cat "$tmp_run"
     exit 1
 fi

@@ -1,0 +1,18 @@
+struct Holder {
+    value:ptr int;
+    count:int;
+}
+
+fn:int main() {
+    let mut copied:int = 0;
+
+    zone {
+        let holder:Holder = Holder {
+            value:zalloc int,
+            count:9
+        };
+        copied = holder.count;
+    }
+
+    return copied;
+}

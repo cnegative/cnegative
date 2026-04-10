@@ -627,6 +627,10 @@ static cn_program *cn_builtin_stdlib_program(cn_allocator *allocator, const char
         cn_builtin_push_param(allocator, copy, "value", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
         cn_program_push_function(program, copy);
 
+        cn_function *from_int = cn_builtin_function_create(allocator, "from_int", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
+        cn_builtin_push_param(allocator, from_int, "value", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, from_int);
+
         cn_function *concat = cn_builtin_function_create(allocator, "concat", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
         cn_builtin_push_param(allocator, concat, "left", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
         cn_builtin_push_param(allocator, concat, "right", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
@@ -722,6 +726,16 @@ static cn_program *cn_builtin_stdlib_program(cn_allocator *allocator, const char
         );
         cn_builtin_push_param(allocator, append, "value", cn_builtin_primitive_type(allocator, CN_TYPE_STR));
         cn_program_push_function(program, append);
+
+        cn_function *append_int = cn_builtin_function_create(allocator, "append_int", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
+        cn_builtin_push_param(
+            allocator,
+            append_int,
+            "builder",
+            cn_builtin_ptr_type(allocator, cn_builtin_named_type(allocator, "std.text", "Builder"))
+        );
+        cn_builtin_push_param(allocator, append_int, "value", cn_builtin_primitive_type(allocator, CN_TYPE_INT));
+        cn_program_push_function(program, append_int);
 
         cn_function *push_byte = cn_builtin_function_create(allocator, "push_byte", cn_builtin_result_type(allocator, CN_TYPE_BOOL));
         cn_builtin_push_param(

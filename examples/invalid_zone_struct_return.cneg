@@ -1,0 +1,23 @@
+struct Holder {
+    value:ptr int;
+    count:int;
+}
+
+fn:Holder leak() {
+    zone {
+        let holder:Holder = Holder {
+            value:zalloc int,
+            count:9
+        };
+        return holder;
+    }
+
+    return Holder {
+        value:null,
+        count:0
+    };
+}
+
+fn:int main() {
+    return 0;
+}

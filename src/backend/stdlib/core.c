@@ -89,6 +89,7 @@ void cn_llvm_emit_runtime_decls(FILE *stream) {
 
 void cn_llvm_emit_runtime_core(FILE *stream) {
     fputs("@.cn.int_fmt = private unnamed_addr constant [6 x i8] c\"%lld\\0A\\00\"\n", stream);
+    fputs("@.cn.int_str_fmt = private unnamed_addr constant [5 x i8] c\"%lld\\00\"\n", stream);
     fputs("@.cn.str_fmt = private unnamed_addr constant [3 x i8] c\"%s\\00\"\n", stream);
     fputs("@.cn.host_port_fmt = private unnamed_addr constant [8 x i8] c\"%s:%lld\\00\"\n", stream);
     fputs("@.cn.empty = private unnamed_addr constant [1 x i8] c\"\\00\"\n", stream);
@@ -176,6 +177,89 @@ void cn_llvm_emit_runtime_core(FILE *stream) {
         "  call void @free(ptr %curr.value)\n"
         "  call void @free(ptr %curr)\n"
         "  ret void\n"
+        "done:\n"
+        "  ret void\n"
+        "}\n\n",
+        stream
+    );
+    fputs(
+        "define private ptr @cn_zone_enter() {\n"
+        "entry:\n"
+        "  %zone = call ptr @malloc(i64 8)\n"
+        "  %has.zone = icmp ne ptr %zone, null\n"
+        "  br i1 %has.zone, label %init, label %done\n"
+        "init:\n"
+        "  %head.ptr = getelementptr inbounds { ptr }, ptr %zone, i32 0, i32 0\n"
+        "  store ptr null, ptr %head.ptr\n"
+        "  br label %done\n"
+        "done:\n"
+        "  ret ptr %zone\n"
+        "}\n\n",
+        stream
+    );
+    fputs(
+        "define private ptr @cn_zone_alloc(ptr %zone, i64 %size) {\n"
+        "entry:\n"
+        "  %has.zone = icmp ne ptr %zone, null\n"
+        "  br i1 %has.zone, label %alloc.node, label %fail\n"
+        "alloc.node:\n"
+        "  %node = call ptr @malloc(i64 16)\n"
+        "  %payload = call ptr @malloc(i64 %size)\n"
+        "  %has.node = icmp ne ptr %node, null\n"
+        "  %has.payload = icmp ne ptr %payload, null\n"
+        "  %node.ok = and i1 %has.node, %has.payload\n"
+        "  br i1 %node.ok, label %link, label %cleanup\n"
+        "cleanup:\n"
+        "  br i1 %has.node, label %free.node, label %cleanup.payload\n"
+        "free.node:\n"
+        "  call void @free(ptr %node)\n"
+        "  br label %cleanup.payload\n"
+        "cleanup.payload:\n"
+        "  br i1 %has.payload, label %free.payload, label %fail\n"
+        "free.payload:\n"
+        "  call void @free(ptr %payload)\n"
+        "  br label %fail\n"
+        "link:\n"
+        "  %head.ptr = getelementptr inbounds { ptr }, ptr %zone, i32 0, i32 0\n"
+        "  %head = load ptr, ptr %head.ptr\n"
+        "  %node.next = getelementptr inbounds { ptr, ptr }, ptr %node, i32 0, i32 0\n"
+        "  %node.payload = getelementptr inbounds { ptr, ptr }, ptr %node, i32 0, i32 1\n"
+        "  store ptr %head, ptr %node.next\n"
+        "  store ptr %payload, ptr %node.payload\n"
+        "  store ptr %node, ptr %head.ptr\n"
+        "  ret ptr %payload\n"
+        "fail:\n"
+        "  ret ptr null\n"
+        "}\n\n",
+        stream
+    );
+    fputs(
+        "define private void @cn_zone_release(ptr %zone) {\n"
+        "entry:\n"
+        "  %is.null = icmp eq ptr %zone, null\n"
+        "  br i1 %is.null, label %done, label %init\n"
+        "init:\n"
+        "  %curr.slot = alloca ptr\n"
+        "  %head.ptr = getelementptr inbounds { ptr }, ptr %zone, i32 0, i32 0\n"
+        "  %head = load ptr, ptr %head.ptr\n"
+        "  store ptr %head, ptr %curr.slot\n"
+        "  br label %loop\n"
+        "loop:\n"
+        "  %curr = load ptr, ptr %curr.slot\n"
+        "  %curr.null = icmp eq ptr %curr, null\n"
+        "  br i1 %curr.null, label %free.zone, label %free.node\n"
+        "free.node:\n"
+        "  %next.ptr = getelementptr inbounds { ptr, ptr }, ptr %curr, i32 0, i32 0\n"
+        "  %payload.ptr = getelementptr inbounds { ptr, ptr }, ptr %curr, i32 0, i32 1\n"
+        "  %next = load ptr, ptr %next.ptr\n"
+        "  %payload = load ptr, ptr %payload.ptr\n"
+        "  call void @free(ptr %payload)\n"
+        "  call void @free(ptr %curr)\n"
+        "  store ptr %next, ptr %curr.slot\n"
+        "  br label %loop\n"
+        "free.zone:\n"
+        "  call void @free(ptr %zone)\n"
+        "  br label %done\n"
         "done:\n"
         "  ret void\n"
         "}\n\n",

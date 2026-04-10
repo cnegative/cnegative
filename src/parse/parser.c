@@ -97,6 +97,7 @@ static bool cn_parser_is_statement_start(cn_token_kind kind) {
            kind == CN_TOKEN_FREE ||
            kind == CN_TOKEN_DEFER ||
            kind == CN_TOKEN_TRY ||
+           kind == CN_TOKEN_ZONE ||
            kind == CN_TOKEN_IF ||
            kind == CN_TOKEN_WHILE ||
            kind == CN_TOKEN_LOOP ||
@@ -224,7 +225,7 @@ void cn_parser_init(cn_parser *parser, cn_allocator *allocator, const cn_token_b
     parser->index = 0;
 }
 
-static cn_type_ref *cn_parse_type_base(cn_parser *parser) {
+static cn_type_ref *cn_parse_type_atom(cn_parser *parser) {
     const cn_token *token = cn_parser_current(parser);
 
     if (cn_parser_match(parser, CN_TOKEN_INT)) {
@@ -241,27 +242,6 @@ static cn_type_ref *cn_parse_type_base(cn_parser *parser) {
     }
     if (cn_parser_match(parser, CN_TOKEN_VOID)) {
         return cn_type_create(parser->allocator, CN_TYPE_VOID, token->lexeme, NULL, token->offset);
-    }
-    if (cn_parser_match(parser, CN_TOKEN_RESULT)) {
-        cn_type_ref *inner = cn_parse_type(parser);
-        if (inner == NULL) {
-            return NULL;
-        }
-        return cn_type_create(parser->allocator, CN_TYPE_RESULT, token->lexeme, inner, token->offset);
-    }
-    if (cn_parser_match(parser, CN_TOKEN_PTR)) {
-        cn_type_ref *inner = cn_parse_type(parser);
-        if (inner == NULL) {
-            return NULL;
-        }
-        return cn_type_create(parser->allocator, CN_TYPE_PTR, token->lexeme, inner, token->offset);
-    }
-    if (cn_parser_match(parser, CN_TOKEN_SLICE)) {
-        cn_type_ref *inner = cn_parse_type(parser);
-        if (inner == NULL) {
-            return NULL;
-        }
-        return cn_type_create(parser->allocator, CN_TYPE_SLICE, token->lexeme, inner, token->offset);
     }
     if (cn_parser_match(parser, CN_TOKEN_IDENTIFIER)) {
         if (cn_parser_match(parser, CN_TOKEN_DOT)) {
@@ -283,25 +263,59 @@ static cn_type_ref *cn_parse_type_base(cn_parser *parser) {
 }
 
 static cn_type_ref *cn_parse_type(cn_parser *parser) {
-    cn_type_ref *type = cn_parse_type_base(parser);
+    typedef struct cn_type_prefix {
+        cn_type_kind kind;
+        cn_strview name;
+        size_t offset;
+    } cn_type_prefix;
+
+    cn_type_prefix prefixes[32];
+    size_t prefix_count = 0;
+
+    while (prefix_count < CN_ARRAY_LEN(prefixes)) {
+        const cn_token *token = cn_parser_current(parser);
+        cn_type_kind prefix_kind;
+        if (cn_parser_match(parser, CN_TOKEN_RESULT)) {
+            prefix_kind = CN_TYPE_RESULT;
+        } else if (cn_parser_match(parser, CN_TOKEN_PTR)) {
+            prefix_kind = CN_TYPE_PTR;
+        } else if (cn_parser_match(parser, CN_TOKEN_SLICE)) {
+            prefix_kind = CN_TYPE_SLICE;
+        } else {
+            break;
+        }
+
+        prefixes[prefix_count].kind = prefix_kind;
+        prefixes[prefix_count].name = token->lexeme;
+        prefixes[prefix_count].offset = token->offset;
+        prefix_count += 1;
+    }
+
+    cn_type_ref *type = cn_parse_type_atom(parser);
     if (type == NULL) {
         return NULL;
     }
 
+    while (prefix_count > 0) {
+        prefix_count -= 1;
+        type = cn_type_create(
+            parser->allocator,
+            prefixes[prefix_count].kind,
+            prefixes[prefix_count].name,
+            type,
+            prefixes[prefix_count].offset
+        );
+    }
+
     while (cn_parser_match(parser, CN_TOKEN_LBRACKET)) {
-        const cn_token *size_token = cn_parser_consume(parser, CN_TOKEN_INT_LITERAL, "expected array size inside type");
+        cn_expr *size_expr = cn_parse_expression(parser);
         cn_parser_consume(parser, CN_TOKEN_RBRACKET, "expected ']' after array size");
-        if (size_token == NULL) {
+        if (size_expr == NULL) {
             return type;
         }
 
-        size_t array_size = 0;
-        for (size_t i = 0; i < size_token->lexeme.length; ++i) {
-            array_size = (array_size * 10) + (size_t)(size_token->lexeme.data[i] - '0');
-        }
-
-        cn_type_ref *array_type = cn_type_create(parser->allocator, CN_TYPE_ARRAY, size_token->lexeme, type, type->offset);
-        array_type->array_size = array_size;
+        cn_type_ref *array_type = cn_type_create(parser->allocator, CN_TYPE_ARRAY, cn_sv_from_parts(NULL, 0), type, type->offset);
+        array_type->array_size_expr = size_expr;
         type = array_type;
     }
 
@@ -313,15 +327,30 @@ static cn_expr *cn_parse_array_literal(cn_parser *parser, const cn_token *left_b
     expression->data.array_literal.items.items = NULL;
     expression->data.array_literal.items.count = 0;
     expression->data.array_literal.items.capacity = 0;
+    expression->data.array_literal.repeat_count_expr = NULL;
+    expression->data.array_literal.repeat_count = 0;
 
     if (!cn_parser_check(parser, CN_TOKEN_RBRACKET)) {
-        do {
-            cn_expr *item = cn_parse_expression(parser);
-            if (item == NULL) {
+        cn_expr *first_item = cn_parse_expression(parser);
+        if (first_item == NULL) {
+            return expression;
+        }
+        cn_expr_list_push(parser->allocator, &expression->data.array_literal.items, first_item);
+
+        if (cn_parser_match(parser, CN_TOKEN_SEMICOLON)) {
+            expression->data.array_literal.repeat_count_expr = cn_parse_expression(parser);
+            if (expression->data.array_literal.repeat_count_expr == NULL) {
                 return expression;
             }
-            cn_expr_list_push(parser->allocator, &expression->data.array_literal.items, item);
-        } while (cn_parser_match(parser, CN_TOKEN_COMMA));
+        } else {
+            while (cn_parser_match(parser, CN_TOKEN_COMMA)) {
+                cn_expr *item = cn_parse_expression(parser);
+                if (item == NULL) {
+                    return expression;
+                }
+                cn_expr_list_push(parser->allocator, &expression->data.array_literal.items, item);
+            }
+        }
     }
 
     cn_parser_consume(parser, CN_TOKEN_RBRACKET, "expected ']' after array literal");
@@ -365,6 +394,17 @@ static cn_expr *cn_parse_alloc_expression(cn_parser *parser, const cn_token *all
 
     cn_expr *expression = cn_expr_create(parser->allocator, CN_EXPR_ALLOC, alloc_token->offset);
     expression->data.alloc_expr.type = type;
+    return expression;
+}
+
+static cn_expr *cn_parse_zalloc_expression(cn_parser *parser, const cn_token *zalloc_token) {
+    cn_type_ref *type = cn_parse_type(parser);
+    if (type == NULL) {
+        return NULL;
+    }
+
+    cn_expr *expression = cn_expr_create(parser->allocator, CN_EXPR_ZALLOC, zalloc_token->offset);
+    expression->data.zalloc_expr.type = type;
     return expression;
 }
 
@@ -447,12 +487,20 @@ static cn_expr *cn_parse_primary(cn_parser *parser) {
         return expression;
     }
 
+    if (cn_parser_match(parser, CN_TOKEN_NULL)) {
+        return cn_expr_create(parser->allocator, CN_EXPR_NULL, token->offset);
+    }
+
     if (cn_parser_match(parser, CN_TOKEN_ERR)) {
         return cn_expr_create(parser->allocator, CN_EXPR_ERR, token->offset);
     }
 
     if (cn_parser_match(parser, CN_TOKEN_ALLOC)) {
         return cn_parse_alloc_expression(parser, token);
+    }
+
+    if (cn_parser_match(parser, CN_TOKEN_ZALLOC)) {
+        return cn_parse_zalloc_expression(parser, token);
     }
 
     if (cn_parser_match(parser, CN_TOKEN_IF)) {
@@ -794,6 +842,17 @@ static cn_stmt *cn_parse_try_statement(cn_parser *parser, const cn_token *try_to
     return statement;
 }
 
+static cn_stmt *cn_parse_zone_statement(cn_parser *parser, const cn_token *zone_token) {
+    cn_block *body = cn_parse_block(parser);
+    if (body == NULL) {
+        return NULL;
+    }
+
+    cn_stmt *statement = cn_stmt_create(parser->allocator, CN_STMT_ZONE, zone_token->offset);
+    statement->data.zone_stmt.body = body;
+    return statement;
+}
+
 static cn_stmt *cn_parse_free_statement(cn_parser *parser, const cn_token *free_token) {
     cn_expr *value = cn_parse_expression(parser);
     cn_parser_require_semicolon(parser, "expected ';' after free statement");
@@ -945,6 +1004,10 @@ static cn_stmt *cn_parse_statement(cn_parser *parser) {
     if (cn_parser_check(parser, CN_TOKEN_RETURN)) {
         const cn_token *token = cn_parser_advance(parser);
         return cn_parse_return_statement(parser, token);
+    }
+    if (cn_parser_check(parser, CN_TOKEN_ZONE)) {
+        const cn_token *token = cn_parser_advance(parser);
+        return cn_parse_zone_statement(parser, token);
     }
     if (cn_parser_check(parser, CN_TOKEN_TRY)) {
         const cn_token *token = cn_parser_advance(parser);
