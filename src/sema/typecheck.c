@@ -2,17 +2,32 @@
 
 #include <stdio.h>
 
+typedef struct cn_result_proof cn_result_proof;
+
 typedef struct cn_binding {
     cn_strview name;
     const cn_type_ref *type;
     bool is_mutable;
     size_t scope_zone_depth;
     size_t value_zone_depth;
-    const struct cn_binding *result_guard_binding;
-    bool has_result_guard_alias;
-    bool result_guard_positive;
+    cn_result_proof *result_guard_proof;
     struct cn_binding *next;
 } cn_binding;
+
+typedef enum cn_result_proof_kind {
+    CN_RESULT_PROOF_LEAF,
+    CN_RESULT_PROOF_NOT,
+    CN_RESULT_PROOF_AND,
+    CN_RESULT_PROOF_OR
+} cn_result_proof_kind;
+
+struct cn_result_proof {
+    cn_result_proof_kind kind;
+    const cn_binding *binding;
+    bool positive;
+    cn_result_proof *left;
+    cn_result_proof *right;
+};
 
 typedef struct cn_name_map_entry {
     cn_strview key;
@@ -524,6 +539,100 @@ static void cn_scope_mark_result_ok(cn_sema_ctx *ctx, cn_scope *scope, const cn_
     scope->result_guards = guard;
 }
 
+static cn_result_proof *cn_result_proof_create_leaf(cn_allocator *allocator, const cn_binding *binding, bool positive) {
+    cn_result_proof *proof = CN_ALLOC(allocator, cn_result_proof);
+    proof->kind = CN_RESULT_PROOF_LEAF;
+    proof->binding = binding;
+    proof->positive = positive;
+    proof->left = NULL;
+    proof->right = NULL;
+    return proof;
+}
+
+static cn_result_proof *cn_result_proof_create_unary(cn_allocator *allocator, cn_result_proof_kind kind, cn_result_proof *inner) {
+    cn_result_proof *proof = CN_ALLOC(allocator, cn_result_proof);
+    proof->kind = kind;
+    proof->binding = NULL;
+    proof->positive = true;
+    proof->left = inner;
+    proof->right = NULL;
+    return proof;
+}
+
+static cn_result_proof *cn_result_proof_create_binary(
+    cn_allocator *allocator,
+    cn_result_proof_kind kind,
+    cn_result_proof *left,
+    cn_result_proof *right
+) {
+    cn_result_proof *proof = CN_ALLOC(allocator, cn_result_proof);
+    proof->kind = kind;
+    proof->binding = NULL;
+    proof->positive = true;
+    proof->left = left;
+    proof->right = right;
+    return proof;
+}
+
+static cn_result_proof *cn_result_proof_clone(cn_allocator *allocator, const cn_result_proof *proof) {
+    if (proof == NULL) {
+        return NULL;
+    }
+
+    cn_result_proof *copy = CN_ALLOC(allocator, cn_result_proof);
+    copy->kind = proof->kind;
+    copy->binding = proof->binding;
+    copy->positive = proof->positive;
+    copy->left = cn_result_proof_clone(allocator, proof->left);
+    copy->right = cn_result_proof_clone(allocator, proof->right);
+    return copy;
+}
+
+static void cn_result_proof_destroy(cn_allocator *allocator, cn_result_proof *proof) {
+    if (proof == NULL) {
+        return;
+    }
+
+    cn_result_proof_destroy(allocator, proof->left);
+    cn_result_proof_destroy(allocator, proof->right);
+    CN_FREE(allocator, proof);
+}
+
+static bool cn_result_proof_depends_on_binding(const cn_result_proof *proof, const cn_binding *binding) {
+    if (proof == NULL || binding == NULL) {
+        return false;
+    }
+
+    if (proof->kind == CN_RESULT_PROOF_LEAF) {
+        return proof->binding == binding;
+    }
+
+    return cn_result_proof_depends_on_binding(proof->left, binding) ||
+           cn_result_proof_depends_on_binding(proof->right, binding);
+}
+
+static void cn_scope_invalidate_result_proofs(cn_sema_ctx *ctx, cn_scope *scope, const cn_binding *binding) {
+    if (binding == NULL) {
+        return;
+    }
+
+    for (cn_scope *cursor = scope; cursor != NULL; cursor = cursor->parent) {
+        for (cn_result_guard *guard = cursor->result_guards; guard != NULL; guard = guard->next) {
+            if (guard->binding == binding) {
+                guard->binding = NULL;
+            }
+        }
+
+        for (cn_binding *candidate = cursor->bindings; candidate != NULL; candidate = candidate->next) {
+            if (candidate->result_guard_proof != NULL &&
+                cn_result_proof_depends_on_binding(candidate->result_guard_proof, binding)) {
+                cn_result_proof_destroy(ctx->allocator, candidate->result_guard_proof);
+                candidate->result_guard_proof = NULL;
+            }
+        }
+    }
+}
+
 static bool cn_scope_define(
     cn_sema_ctx *ctx,
     cn_scope *scope,
@@ -552,9 +661,7 @@ static bool cn_scope_define(
     binding->is_mutable = is_mutable;
     binding->scope_zone_depth = scope != NULL ? scope->zone_depth : 0;
     binding->value_zone_depth = value_zone_depth;
-    binding->result_guard_binding = NULL;
-    binding->has_result_guard_alias = false;
-    binding->result_guard_positive = true;
+    binding->result_guard_proof = NULL;
     binding->next = scope->bindings;
     scope->bindings = binding;
     cn_name_map_insert(ctx, &scope->binding_map, name, binding, 0, true);
@@ -565,6 +672,7 @@ static void cn_scope_release(cn_sema_ctx *ctx, cn_scope *scope) {
     cn_binding *binding = scope->bindings;
     while (binding != NULL) {
         cn_binding *next = binding->next;
+        cn_result_proof_destroy(ctx->allocator, binding->result_guard_proof);
         CN_FREE(ctx->allocator, binding);
         binding = next;
     }
@@ -658,11 +766,25 @@ static const cn_type_ref *cn_check_expression_hint(
     const cn_type_ref *expected
 );
 
+static cn_result_proof *cn_build_result_proof(
+    cn_sema_ctx *ctx,
+    const cn_scope *scope,
+    const cn_expr *expression,
+    size_t depth
+);
+
 static void cn_mark_result_ok_proofs_for_branch(
     cn_sema_ctx *ctx,
     cn_scope *target_scope,
     const cn_scope *analysis_scope,
     const cn_expr *expression,
+    bool branch_truth
+);
+
+static void cn_mark_result_ok_proof_for_branch(
+    cn_sema_ctx *ctx,
+    cn_scope *target_scope,
+    const cn_result_proof *proof,
     bool branch_truth
 );
 
@@ -1083,93 +1205,129 @@ static bool cn_extract_bool_literal(const cn_expr *expression, bool *out_value) 
     return true;
 }
 
-static bool cn_extract_result_ok_alias_inner(
+static cn_result_proof *cn_build_result_proof(
+    cn_sema_ctx *ctx,
     const cn_scope *scope,
     const cn_expr *expression,
-    const cn_binding **out_binding,
-    bool *out_positive,
     size_t depth
 ) {
     if (expression == NULL || depth >= 32) {
-        return false;
+        return NULL;
     }
 
     const cn_expr *guard = expression;
-    bool is_positive = true;
 
     if (guard->kind == CN_EXPR_UNARY && guard->data.unary.op == CN_UNARY_NOT) {
-        bool operand_positive = true;
-        if (!cn_extract_result_ok_alias_inner(scope, guard->data.unary.operand, out_binding, &operand_positive, depth + 1)) {
-            return false;
+        cn_result_proof *inner = cn_build_result_proof(ctx, scope, guard->data.unary.operand, depth + 1);
+        if (inner == NULL) {
+            return NULL;
         }
-        *out_positive = !operand_positive;
-        return true;
+        return cn_result_proof_create_unary(ctx->allocator, CN_RESULT_PROOF_NOT, inner);
     }
 
     if (guard->kind == CN_EXPR_BINARY &&
         (guard->data.binary.op == CN_BINARY_EQUAL || guard->data.binary.op == CN_BINARY_NOT_EQUAL)) {
         bool literal_value = false;
-        if (cn_extract_result_ok_alias_inner(scope, guard->data.binary.left, out_binding, &is_positive, depth + 1) &&
-            cn_extract_bool_literal(guard->data.binary.right, &literal_value)) {
-            if (!literal_value) {
-                is_positive = !is_positive;
+        if (cn_extract_bool_literal(guard->data.binary.right, &literal_value)) {
+            cn_result_proof *proof = cn_build_result_proof(ctx, scope, guard->data.binary.left, depth + 1);
+            if (proof != NULL) {
+                if (!literal_value) {
+                    proof = cn_result_proof_create_unary(ctx->allocator, CN_RESULT_PROOF_NOT, proof);
+                }
+                if (guard->data.binary.op == CN_BINARY_NOT_EQUAL) {
+                    proof = cn_result_proof_create_unary(ctx->allocator, CN_RESULT_PROOF_NOT, proof);
+                }
+                return proof;
             }
-            if (guard->data.binary.op == CN_BINARY_NOT_EQUAL) {
-                is_positive = !is_positive;
-            }
-            *out_positive = is_positive;
-            return true;
         }
 
-        if (cn_extract_result_ok_alias_inner(scope, guard->data.binary.right, out_binding, &is_positive, depth + 1) &&
-            cn_extract_bool_literal(guard->data.binary.left, &literal_value)) {
-            if (!literal_value) {
-                is_positive = !is_positive;
+        if (cn_extract_bool_literal(guard->data.binary.left, &literal_value)) {
+            cn_result_proof *proof = cn_build_result_proof(ctx, scope, guard->data.binary.right, depth + 1);
+            if (proof != NULL) {
+                if (!literal_value) {
+                    proof = cn_result_proof_create_unary(ctx->allocator, CN_RESULT_PROOF_NOT, proof);
+                }
+                if (guard->data.binary.op == CN_BINARY_NOT_EQUAL) {
+                    proof = cn_result_proof_create_unary(ctx->allocator, CN_RESULT_PROOF_NOT, proof);
+                }
+                return proof;
             }
-            if (guard->data.binary.op == CN_BINARY_NOT_EQUAL) {
-                is_positive = !is_positive;
-            }
-            *out_positive = is_positive;
-            return true;
         }
+    }
+
+    if (guard->kind == CN_EXPR_BINARY &&
+        (guard->data.binary.op == CN_BINARY_AND || guard->data.binary.op == CN_BINARY_OR)) {
+        cn_result_proof *left = cn_build_result_proof(ctx, scope, guard->data.binary.left, depth + 1);
+        cn_result_proof *right = cn_build_result_proof(ctx, scope, guard->data.binary.right, depth + 1);
+        if (left == NULL && right == NULL) {
+            return NULL;
+        }
+
+        return cn_result_proof_create_binary(
+            ctx->allocator,
+            guard->data.binary.op == CN_BINARY_AND ? CN_RESULT_PROOF_AND : CN_RESULT_PROOF_OR,
+            left,
+            right
+        );
     }
 
     if (guard->kind == CN_EXPR_NAME) {
         const cn_binding *binding = cn_scope_lookup(scope, guard->data.name);
-        if (binding == NULL || !binding->has_result_guard_alias || binding->result_guard_binding == NULL) {
-            return false;
+        if (binding == NULL || binding->result_guard_proof == NULL) {
+            return NULL;
         }
 
-        *out_binding = binding->result_guard_binding;
-        *out_positive = binding->result_guard_positive;
-        return true;
+        return cn_result_proof_clone(ctx->allocator, binding->result_guard_proof);
     }
 
     if (guard->kind != CN_EXPR_FIELD || !cn_sv_eq_cstr(guard->data.field.field_name, "ok")) {
-        return false;
+        return NULL;
     }
 
     if (guard->data.field.base->kind != CN_EXPR_NAME) {
-        return false;
+        return NULL;
     }
 
     const cn_binding *binding = cn_scope_lookup(scope, guard->data.field.base->data.name);
     if (binding == NULL || binding->type == NULL || binding->type->kind != CN_TYPE_RESULT) {
-        return false;
+        return NULL;
     }
 
-    *out_binding = binding;
-    *out_positive = is_positive;
-    return true;
+    return cn_result_proof_create_leaf(ctx->allocator, binding, true);
 }
 
-static bool cn_extract_result_ok_alias(
-    const cn_scope *scope,
-    const cn_expr *expression,
-    const cn_binding **out_binding,
-    bool *out_positive
+static void cn_mark_result_ok_proof_for_branch(
+    cn_sema_ctx *ctx,
+    cn_scope *target_scope,
+    const cn_result_proof *proof,
+    bool branch_truth
 ) {
-    return cn_extract_result_ok_alias_inner(scope, expression, out_binding, out_positive, 0);
+    if (target_scope == NULL || proof == NULL) {
+        return;
+    }
+
+    switch (proof->kind) {
+    case CN_RESULT_PROOF_LEAF:
+        if ((branch_truth && proof->positive) || (!branch_truth && !proof->positive)) {
+            cn_scope_mark_result_ok(ctx, target_scope, proof->binding);
+        }
+        return;
+    case CN_RESULT_PROOF_NOT:
+        cn_mark_result_ok_proof_for_branch(ctx, target_scope, proof->left, !branch_truth);
+        return;
+    case CN_RESULT_PROOF_AND:
+        if (branch_truth) {
+            cn_mark_result_ok_proof_for_branch(ctx, target_scope, proof->left, true);
+            cn_mark_result_ok_proof_for_branch(ctx, target_scope, proof->right, true);
+        }
+        return;
+    case CN_RESULT_PROOF_OR:
+        if (!branch_truth) {
+            cn_mark_result_ok_proof_for_branch(ctx, target_scope, proof->left, false);
+            cn_mark_result_ok_proof_for_branch(ctx, target_scope, proof->right, false);
+        }
+        return;
+    }
 }
 
 static void cn_mark_result_ok_proofs_for_branch(
@@ -1179,57 +1337,9 @@ static void cn_mark_result_ok_proofs_for_branch(
     const cn_expr *expression,
     bool branch_truth
 ) {
-    if (target_scope == NULL || analysis_scope == NULL || expression == NULL) {
-        return;
-    }
-
-    if (expression->kind == CN_EXPR_BINARY) {
-        if (branch_truth && expression->data.binary.op == CN_BINARY_AND) {
-            cn_mark_result_ok_proofs_for_branch(
-                ctx,
-                target_scope,
-                analysis_scope,
-                expression->data.binary.left,
-                true
-            );
-            cn_mark_result_ok_proofs_for_branch(
-                ctx,
-                target_scope,
-                analysis_scope,
-                expression->data.binary.right,
-                true
-            );
-            return;
-        }
-
-        if (!branch_truth && expression->data.binary.op == CN_BINARY_OR) {
-            cn_mark_result_ok_proofs_for_branch(
-                ctx,
-                target_scope,
-                analysis_scope,
-                expression->data.binary.left,
-                false
-            );
-            cn_mark_result_ok_proofs_for_branch(
-                ctx,
-                target_scope,
-                analysis_scope,
-                expression->data.binary.right,
-                false
-            );
-            return;
-        }
-    }
-
-    const cn_binding *binding = NULL;
-    bool positive = false;
-    if (!cn_extract_result_ok_alias(analysis_scope, expression, &binding, &positive)) {
-        return;
-    }
-
-    if ((branch_truth && positive) || (!branch_truth && !positive)) {
-        cn_scope_mark_result_ok(ctx, target_scope, binding);
-    }
+    cn_result_proof *proof = cn_build_result_proof(ctx, analysis_scope, expression, 0);
+    cn_mark_result_ok_proof_for_branch(ctx, target_scope, proof, branch_truth);
+    cn_result_proof_destroy(ctx->allocator, proof);
 }
 
 static bool cn_check_const_decl(cn_sema_ctx *ctx, const cn_module *module, const cn_const_decl *const_decl);
@@ -2558,13 +2668,8 @@ static bool cn_check_statement(cn_sema_ctx *ctx, cn_scope *scope, const cn_stmt 
         );
         if (!statement->data.let_stmt.is_mutable && cn_type_equal(statement->data.let_stmt.type, cn_builtin_type(CN_TYPE_BOOL))) {
             cn_binding *binding = cn_scope_lookup_mut(scope, statement->data.let_stmt.name);
-            const cn_binding *guard_binding = NULL;
-            bool guard_positive = false;
-            if (binding != NULL &&
-                cn_extract_result_ok_alias(scope, statement->data.let_stmt.initializer, &guard_binding, &guard_positive)) {
-                binding->result_guard_binding = guard_binding;
-                binding->has_result_guard_alias = true;
-                binding->result_guard_positive = guard_positive;
+            if (binding != NULL) {
+                binding->result_guard_proof = cn_build_result_proof(ctx, scope, statement->data.let_stmt.initializer, 0);
             }
         }
         return true;
@@ -2604,6 +2709,12 @@ static bool cn_check_statement(cn_sema_ctx *ctx, cn_scope *scope, const cn_stmt 
             cn_binding *binding = cn_scope_lookup_mut(scope, target_info.binding_name);
             if (binding != NULL) {
                 binding->value_zone_depth = value_zone_depth;
+                if (binding->type != NULL && binding->type->kind == CN_TYPE_RESULT) {
+                    cn_scope_invalidate_result_proofs(ctx, scope, binding);
+                    if (statement->data.assign_stmt.value->kind == CN_EXPR_OK) {
+                        cn_scope_mark_result_ok(ctx, scope, binding);
+                    }
+                }
             }
         }
         return true;

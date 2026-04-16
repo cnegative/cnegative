@@ -50,12 +50,14 @@ Still open
    - This makes inline text and integer output behave more predictably
 
 3. Rigid `.value` proof system
-   - Status: partially improved, still open
+   - Status: improved, still open
    - Simple `if r.ok == false { return ...; }` patterns are understood now
    - Immutable bool aliases of `.ok` are understood now
    - Simple `&&` true-branch and `||` false-branch proofs are understood now
    - `if` expression branches and `while r.ok { ... }` bodies now inherit the
      proven-ok guard
+   - Reassigning a mutable result clears earlier proofs, and `r = ok ...`
+     re-establishes them for later `.value`
    - More complex proof tracking is still limited beyond those guarded shapes
 
 4. Manual string tracking

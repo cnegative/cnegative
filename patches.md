@@ -1,5 +1,15 @@
 # Patches
 
+## v0.5.2
+
+- expanded the `.value` proof system again so immutable bool aliases,
+  composed `&&` / `||` guards, and result reassignment behave more like normal
+  human control flow
+- made proof tracking binding-based so shadowing and reassignment do not leave
+  stale proven-ok state behind
+- added regression coverage for mutable-result reassignment, including the
+  `r = ok ...` re-establish case and the invalid stale-proof case
+
 ## v0.5.1
 
 - Made `result` a contextual keyword in type positions so it can be reused as a

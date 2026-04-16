@@ -485,6 +485,7 @@ Current checked rule for `result` access:
 - `if r.ok == false { return err; }` is also a valid proof pattern.
 - immutable bool aliases like `let ready:bool = r.ok; if ready { ... }` are also understood.
 - simple composed guards like `if r.ok && cond { ... }` and `if blocked || cond { return err; }` are understood when they prove the result is ok on the active branch.
+- assigning `r = ok value;` re-establishes proof for later `r.value`, while reassigning a mutable result clears earlier proofs.
 - `let first:int = if r.ok { r.value[0] } else { 0 };` is valid.
 - `while r.ok { return r.value[0]; }` is also a valid proof pattern.
 - `return r.value;` without such a proof is rejected.

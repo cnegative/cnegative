@@ -5,7 +5,7 @@
 
 It is being built for people who want direct control, visible rules, and a compiler they can inspect end to end. The goal is to keep the language explicit and low-level while making the surface easier to read, reason about, and evolve.
 
-Current project status: `v0.5.1`
+Current project status: `v0.5.2`
 
 This repository currently ships the `cnegc` compiler with:
 
@@ -104,7 +104,7 @@ Implemented today:
 - object emission and binary linking
 - deep equality across checked aggregate types
 - result `.value` proof diagnostics
-- stronger result narrowing after checks like `if r.ok == false { return err; }`, immutable bool aliases of `.ok`, and simple `&&` / `||` branch proofs
+- stronger result narrowing after checks like `if r.ok == false { return err; }`, immutable bool aliases of `.ok`, simple `&&` / `||` branch proofs, and direct reassignment back to `ok ...`
 - raw backtick strings for multiline text without escape processing
 - parser recovery for continued syntax diagnostics after one error
 

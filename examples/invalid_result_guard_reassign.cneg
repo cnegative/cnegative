@@ -1,0 +1,12 @@
+fn:result int main() {
+    let data:int[2] = [4, 5];
+    let mut loaded:result slice int = ok data;
+    let ready:bool = loaded.ok;
+
+    if ready {
+        loaded = err;
+        return ok loaded.value[0];
+    }
+
+    return err;
+}

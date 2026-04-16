@@ -79,6 +79,7 @@ cn_verify_llvm_ir() {
 ./build/cnegc check examples/result_alias/main.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_result_guard_index.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_result_guard_alias.cneg >"$tmp_valid"
+./build/cnegc check examples/valid_result_reassign_ok.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_if_expr.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_defer.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_defer_loop.cneg >"$tmp_valid"
@@ -1402,6 +1403,17 @@ if ! grep -q 'E1008' "$tmp_invalid"; then
     exit 1
 fi
 
+if ./build/cnegc check examples/invalid_result_guard_reassign.cneg >"$tmp_invalid" 2>&1; then
+    printf 'expected invalid_result_guard_reassign.cneg to fail\n'
+    exit 1
+fi
+
+if ! grep -q 'E3024' "$tmp_invalid"; then
+    printf 'expected E3024 in invalid_result_guard_reassign.cneg output\n'
+    cat "$tmp_invalid"
+    exit 1
+fi
+
 if ./build/cnegc check examples/invalid_implicit_return.cneg >"$tmp_invalid" 2>&1; then
     printf 'expected invalid_implicit_return.cneg to fail\n'
     exit 1
@@ -1970,6 +1982,17 @@ status=$?
 set -e
 if [ "$status" -ne 20 ]; then
     printf 'expected valid_result_guard_alias binary to exit 20, got %d\n' "$status"
+    cat "$tmp_run"
+    exit 1
+fi
+
+./build/cnegc build examples/valid_result_reassign_ok.cneg "$tmp_bin" >"$tmp_valid"
+set +e
+"$tmp_bin" >"$tmp_run"
+status=$?
+set -e
+if [ "$status" -ne 7 ]; then
+    printf 'expected valid_result_reassign_ok binary to exit 7, got %d\n' "$status"
     cat "$tmp_run"
     exit 1
 fi

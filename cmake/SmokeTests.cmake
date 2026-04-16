@@ -157,6 +157,7 @@ cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_result_
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/result_alias/main.cneg)
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_result_guard_index.cneg)
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_result_guard_alias.cneg)
+cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_result_reassign_ok.cneg)
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_if_expr.cneg)
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_defer.cneg)
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_defer_loop.cneg)
@@ -564,6 +565,9 @@ cn_assert_contains("${TMP_INVALID}" "E1007")
 cn_run_expect_failure("${TMP_INVALID}" "${CNEGC_BIN}" check examples/invalid_ptr_missing_inner.cneg)
 cn_assert_contains("${TMP_INVALID}" "E1008")
 
+cn_run_expect_failure("${TMP_INVALID}" "${CNEGC_BIN}" check examples/invalid_result_guard_reassign.cneg)
+cn_assert_contains("${TMP_INVALID}" "E3024")
+
 cn_run_expect_failure("${TMP_INVALID}" "${CNEGC_BIN}" check examples/invalid_implicit_return.cneg)
 cn_assert_contains("${TMP_INVALID}" "E3007")
 
@@ -750,6 +754,9 @@ cn_run_binary("${TMP_RUN}" 30 "" "${TMP_BIN}")
 
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" build examples/valid_result_guard_alias.cneg "${TMP_BIN}")
 cn_run_binary("${TMP_RUN}" 20 "" "${TMP_BIN}")
+
+cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" build examples/valid_result_reassign_ok.cneg "${TMP_BIN}")
+cn_run_binary("${TMP_RUN}" 7 "" "${TMP_BIN}")
 
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" build examples/valid_stdlib_ipc.cneg "${TMP_BIN}")
 cn_run_binary("${TMP_RUN}" 27 "" "${TMP_BIN}")
