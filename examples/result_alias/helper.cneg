@@ -1,0 +1,8 @@
+pstruct Value {
+    value:int;
+}
+
+pfn:Value make() {
+    let out:Value = Value { value: 8 };
+    return out;
+}

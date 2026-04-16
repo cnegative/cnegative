@@ -1,0 +1,4 @@
+fn:int main() {
+    let x:result = 0;
+    return x;
+}

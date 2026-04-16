@@ -1,5 +1,14 @@
 # Patches
 
+## v0.5.1
+
+- Made `result` a contextual keyword in type positions so it can be reused as a
+  normal identifier or import alias elsewhere.
+- Added targeted parse diagnostics for missing inner types after `result`,
+  `ptr`, and `slice` prefixes.
+- Expanded the `.value` proof system to understand immutable bool aliases of
+  `.ok` and simple `&&` / `||` branch-proof patterns.
+
 ## v0.5.0
 
 - Added source-level `null` and pointer equality against `null`.

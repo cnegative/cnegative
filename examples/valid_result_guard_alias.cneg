@@ -1,0 +1,18 @@
+fn:result int main() {
+    let data:int[3] = [9, 10, 11];
+    let loaded:result slice int = ok data;
+
+    let ready:bool = loaded.ok;
+    let open:bool = ready;
+    let blocked:bool = open == false;
+
+    if blocked || data[0] == 0 {
+        return err;
+    }
+
+    if open && data[1] > data[0] {
+        return ok (loaded.value[0] + loaded.value[2]);
+    }
+
+    return err;
+}

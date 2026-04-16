@@ -1,0 +1,6 @@
+import helper as result;
+
+fn:int main() {
+    let item:result.Value = result.make();
+    return item.value;
+}

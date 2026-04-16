@@ -1,0 +1,8 @@
+fn:int result() {
+    return 6;
+}
+
+fn:int main() {
+    let result:int = result();
+    return result + 1;
+}

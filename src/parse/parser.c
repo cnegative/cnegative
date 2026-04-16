@@ -43,6 +43,25 @@ static const cn_token *cn_parser_peek(cn_parser *parser, size_t distance) {
     return &parser->tokens->items[index];
 }
 
+static bool cn_token_is_identifier_text(const cn_token *token, const char *text) {
+    return token != NULL &&
+           token->kind == CN_TOKEN_IDENTIFIER &&
+           cn_sv_eq_cstr(token->lexeme, text);
+}
+
+static bool cn_parser_check_identifier_text(cn_parser *parser, const char *text) {
+    return cn_token_is_identifier_text(cn_parser_current(parser), text);
+}
+
+static bool cn_parser_match_identifier_text(cn_parser *parser, const char *text) {
+    if (!cn_parser_check_identifier_text(parser, text)) {
+        return false;
+    }
+
+    cn_parser_advance(parser);
+    return true;
+}
+
 static const cn_token *cn_parser_consume(cn_parser *parser, cn_token_kind kind, const char *message) {
     if (cn_parser_check(parser, kind)) {
         return cn_parser_advance(parser);
@@ -78,6 +97,18 @@ static const cn_token *cn_parser_consume_field_name(cn_parser *parser) {
 
 static void cn_parser_require_semicolon(cn_parser *parser, const char *message) {
     cn_parser_consume(parser, CN_TOKEN_SEMICOLON, message);
+}
+
+static bool cn_parser_type_starts_here(cn_parser *parser) {
+    const cn_token *token = cn_parser_current(parser);
+    return token->kind == CN_TOKEN_INT ||
+           token->kind == CN_TOKEN_U8 ||
+           token->kind == CN_TOKEN_BYTE ||
+           token->kind == CN_TOKEN_BOOL ||
+           token->kind == CN_TOKEN_STR ||
+           token->kind == CN_TOKEN_VOID ||
+           token->kind == CN_TOKEN_IDENTIFIER ||
+           token->kind == CN_TOKEN_RESULT;
 }
 
 static bool cn_parser_is_top_level_start(cn_token_kind kind) {
@@ -275,7 +306,10 @@ static cn_type_ref *cn_parse_type(cn_parser *parser) {
     while (prefix_count < CN_ARRAY_LEN(prefixes)) {
         const cn_token *token = cn_parser_current(parser);
         cn_type_kind prefix_kind;
-        if (cn_parser_match(parser, CN_TOKEN_RESULT)) {
+        if (cn_parser_match(parser, CN_TOKEN_RESULT) ||
+            (cn_parser_check_identifier_text(parser, "result") &&
+             cn_parser_peek(parser, 1)->kind != CN_TOKEN_DOT &&
+             cn_parser_match_identifier_text(parser, "result"))) {
             prefix_kind = CN_TYPE_RESULT;
         } else if (cn_parser_match(parser, CN_TOKEN_PTR)) {
             prefix_kind = CN_TYPE_PTR;
@@ -289,6 +323,33 @@ static cn_type_ref *cn_parse_type(cn_parser *parser) {
         prefixes[prefix_count].name = token->lexeme;
         prefixes[prefix_count].offset = token->offset;
         prefix_count += 1;
+    }
+
+    if (prefix_count > 0 && !cn_parser_type_starts_here(parser)) {
+        const cn_type_prefix *last_prefix = &prefixes[prefix_count - 1];
+        if (last_prefix->kind == CN_TYPE_RESULT) {
+            cn_diag_emit(
+                parser->diagnostics,
+                CN_DIAG_ERROR,
+                "E1007",
+                last_prefix->offset,
+                "result type requires an inner type; write 'result T'"
+            );
+            return NULL;
+        }
+
+        if (last_prefix->kind == CN_TYPE_PTR || last_prefix->kind == CN_TYPE_SLICE) {
+            cn_diag_emit(
+                parser->diagnostics,
+                CN_DIAG_ERROR,
+                "E1008",
+                last_prefix->offset,
+                "%s type requires an inner type; write '%s T'",
+                last_prefix->kind == CN_TYPE_PTR ? "ptr" : "slice",
+                last_prefix->kind == CN_TYPE_PTR ? "ptr" : "slice"
+            );
+            return NULL;
+        }
     }
 
     cn_type_ref *type = cn_parse_type_atom(parser);

@@ -39,8 +39,9 @@ Still open
 ----------
 
 1. Keyword collision around `result`
-   - Status: open
-   - `result` is still reserved and cannot be reused as a normal identifier
+   - Status: fixed
+   - `result` is now contextual in type positions only
+   - It can be reused as a normal identifier or import alias outside type parsing
 
 2. `print` newline behavior
    - Status: fixed
@@ -51,6 +52,8 @@ Still open
 3. Rigid `.value` proof system
    - Status: partially improved, still open
    - Simple `if r.ok == false { return ...; }` patterns are understood now
+   - Immutable bool aliases of `.ok` are understood now
+   - Simple `&&` true-branch and `||` false-branch proofs are understood now
    - `if` expression branches and `while r.ok { ... }` bodies now inherit the
      proven-ok guard
    - More complex proof tracking is still limited beyond those guarded shapes

@@ -10,6 +10,8 @@
 - `E1004`: invalid character during lexing.
 - `E1005`: unterminated string literal.
 - `E1006`: invalid assignment target in statement syntax.
+- `E1007`: `result` type prefix is missing its inner type.
+- `E1008`: `ptr` or `slice` type prefix is missing its inner type.
 
 ## Semantic Errors
 

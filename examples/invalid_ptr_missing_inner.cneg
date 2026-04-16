@@ -1,0 +1,4 @@
+fn:int main() {
+    let p:ptr = alloc int;
+    return 0;
+}

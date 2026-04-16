@@ -5,7 +5,7 @@
 
 It is being built for people who want direct control, visible rules, and a compiler they can inspect end to end. The goal is to keep the language explicit and low-level while making the surface easier to read, reason about, and evolve.
 
-Current project status: `v0.5.0`
+Current project status: `v0.5.1`
 
 This repository currently ships the `cnegc` compiler with:
 
@@ -31,6 +31,7 @@ This repository currently ships the `cnegc` compiler with:
 - Non-void functions must use explicit `return ...;` on every path.
 - Conditions must be actual `bool` values.
 - Module-level constants use `const` and `pconst`.
+- `result` is contextual in type positions, but it can be reused as a normal identifier elsewhere.
 - The language is explicit by design. `if x {}` is rejected when `x` is not `bool`.
 
 Valid:
@@ -103,7 +104,7 @@ Implemented today:
 - object emission and binary linking
 - deep equality across checked aggregate types
 - result `.value` proof diagnostics
-- stronger result narrowing after checks like `if r.ok == false { return err; }`
+- stronger result narrowing after checks like `if r.ok == false { return err; }`, immutable bool aliases of `.ok`, and simple `&&` / `||` branch proofs
 - raw backtick strings for multiline text without escape processing
 - parser recovery for continued syntax diagnostics after one error
 

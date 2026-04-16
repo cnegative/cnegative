@@ -153,7 +153,10 @@ cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_printin
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_stdlib_ipc.cneg)
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_stdlib_lines.cneg)
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/array_repeat/main.cneg)
+cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_result_identifier.cneg)
+cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/result_alias/main.cneg)
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_result_guard_index.cneg)
+cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_result_guard_alias.cneg)
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_if_expr.cneg)
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_defer.cneg)
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" check examples/valid_defer_loop.cneg)
@@ -312,6 +315,14 @@ cn_assert_contains("${TMP_IR}" "if !__cn_try_")
 cn_run_expect_success("${TMP_IR}" "${CNEGC_BIN}" ir examples/valid_result_guard_index.cneg)
 cn_assert_contains("${TMP_IR}" "if loaded.ok {")
 cn_assert_contains("${TMP_IR}" "while loaded.ok {")
+
+cn_run_expect_success("${TMP_IR}" "${CNEGC_BIN}" ir examples/valid_result_guard_alias.cneg)
+cn_assert_contains("${TMP_IR}" "let open:bool = ready;")
+cn_assert_contains("${TMP_IR}" "blocked ||")
+cn_assert_contains("${TMP_IR}" "open &&")
+
+cn_run_expect_success("${TMP_IR}" "${CNEGC_BIN}" ir examples/result_alias/main.cneg)
+cn_assert_contains("${TMP_IR}" "let item:helper.Value = helper.make();")
 
 cn_run_expect_success("${TMP_IR}" "${CNEGC_BIN}" ir examples/module_roots/main.cneg)
 cn_assert_contains("${TMP_IR}" "fn feature.logic.run() -> int")
@@ -547,6 +558,12 @@ cn_assert_contains("${TMP_INVALID}" "legacy relative")
 cn_run_expect_failure("${TMP_INVALID}" "${CNEGC_BIN}" check examples/invalid_result_value_guard.cneg)
 cn_assert_contains("${TMP_INVALID}" "E3024")
 
+cn_run_expect_failure("${TMP_INVALID}" "${CNEGC_BIN}" check examples/invalid_result_missing_inner.cneg)
+cn_assert_contains("${TMP_INVALID}" "E1007")
+
+cn_run_expect_failure("${TMP_INVALID}" "${CNEGC_BIN}" check examples/invalid_ptr_missing_inner.cneg)
+cn_assert_contains("${TMP_INVALID}" "E1008")
+
 cn_run_expect_failure("${TMP_INVALID}" "${CNEGC_BIN}" check examples/invalid_implicit_return.cneg)
 cn_assert_contains("${TMP_INVALID}" "E3007")
 
@@ -722,8 +739,17 @@ cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" build examples/valid_stdlib_
 cn_run_binary("${TMP_RUN}" 32 "" "${TMP_BIN}")
 cn_assert_contains("${TMP_RUN}" "beta")
 
+cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" build examples/valid_result_identifier.cneg "${TMP_BIN}")
+cn_run_binary("${TMP_RUN}" 7 "" "${TMP_BIN}")
+
+cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" build examples/result_alias/main.cneg "${TMP_BIN}")
+cn_run_binary("${TMP_RUN}" 8 "" "${TMP_BIN}")
+
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" build examples/valid_result_guard_index.cneg "${TMP_BIN}")
 cn_run_binary("${TMP_RUN}" 30 "" "${TMP_BIN}")
+
+cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" build examples/valid_result_guard_alias.cneg "${TMP_BIN}")
+cn_run_binary("${TMP_RUN}" 20 "" "${TMP_BIN}")
 
 cn_run_expect_success("${TMP_VALID}" "${CNEGC_BIN}" build examples/valid_stdlib_ipc.cneg "${TMP_BIN}")
 cn_run_binary("${TMP_RUN}" 27 "" "${TMP_BIN}")

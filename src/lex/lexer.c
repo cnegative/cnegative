@@ -75,7 +75,6 @@ static cn_token_kind cn_keyword_kind(cn_strview text) {
     if (cn_sv_eq_cstr(text, "bool")) return CN_TOKEN_BOOL;
     if (cn_sv_eq_cstr(text, "str")) return CN_TOKEN_STR;
     if (cn_sv_eq_cstr(text, "void")) return CN_TOKEN_VOID;
-    if (cn_sv_eq_cstr(text, "result")) return CN_TOKEN_RESULT;
     if (cn_sv_eq_cstr(text, "ok")) return CN_TOKEN_OK;
     if (cn_sv_eq_cstr(text, "err")) return CN_TOKEN_ERR;
     if (cn_sv_eq_cstr(text, "ptr")) return CN_TOKEN_PTR;

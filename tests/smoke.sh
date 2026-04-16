@@ -75,7 +75,10 @@ cn_verify_llvm_ir() {
 ./build/cnegc check examples/valid_stdlib_ipc.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_stdlib_lines.cneg >"$tmp_valid"
 ./build/cnegc check examples/array_repeat/main.cneg >"$tmp_valid"
+./build/cnegc check examples/valid_result_identifier.cneg >"$tmp_valid"
+./build/cnegc check examples/result_alias/main.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_result_guard_index.cneg >"$tmp_valid"
+./build/cnegc check examples/valid_result_guard_alias.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_if_expr.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_defer.cneg >"$tmp_valid"
 ./build/cnegc check examples/valid_defer_loop.cneg >"$tmp_valid"
@@ -592,6 +595,30 @@ if ! grep -q 'if loaded.ok {' "$tmp_ir"; then
 fi
 if ! grep -q 'while loaded.ok {' "$tmp_ir"; then
     printf 'expected guarded while loop to remain present in typed IR for valid_result_guard_index.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+
+./build/cnegc ir examples/valid_result_guard_alias.cneg >"$tmp_ir"
+if ! grep -q 'let open:bool = ready;' "$tmp_ir"; then
+    printf 'expected bool alias preservation in typed IR for valid_result_guard_alias.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'blocked ||' "$tmp_ir"; then
+    printf 'expected OR guard flow to remain present in typed IR for valid_result_guard_alias.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+if ! grep -q 'open &&' "$tmp_ir"; then
+    printf 'expected AND guard flow to remain present in typed IR for valid_result_guard_alias.cneg\n'
+    cat "$tmp_ir"
+    exit 1
+fi
+
+./build/cnegc ir examples/result_alias/main.cneg >"$tmp_ir"
+if ! grep -q 'let item:helper.Value = helper.make();' "$tmp_ir"; then
+    printf 'expected result import alias to resolve to canonical helper names in typed IR for result_alias/main.cneg\n'
     cat "$tmp_ir"
     exit 1
 fi
@@ -1353,6 +1380,28 @@ if ! grep -q 'E3024' "$tmp_invalid"; then
     exit 1
 fi
 
+if ./build/cnegc check examples/invalid_result_missing_inner.cneg >"$tmp_invalid" 2>&1; then
+    printf 'expected invalid_result_missing_inner.cneg to fail\n'
+    exit 1
+fi
+
+if ! grep -q 'E1007' "$tmp_invalid"; then
+    printf 'expected E1007 in invalid_result_missing_inner.cneg output\n'
+    cat "$tmp_invalid"
+    exit 1
+fi
+
+if ./build/cnegc check examples/invalid_ptr_missing_inner.cneg >"$tmp_invalid" 2>&1; then
+    printf 'expected invalid_ptr_missing_inner.cneg to fail\n'
+    exit 1
+fi
+
+if ! grep -q 'E1008' "$tmp_invalid"; then
+    printf 'expected E1008 in invalid_ptr_missing_inner.cneg output\n'
+    cat "$tmp_invalid"
+    exit 1
+fi
+
 if ./build/cnegc check examples/invalid_implicit_return.cneg >"$tmp_invalid" 2>&1; then
     printf 'expected invalid_implicit_return.cneg to fail\n'
     exit 1
@@ -1881,6 +1930,28 @@ if ! grep -q '^beta$' "$tmp_run"; then
     exit 1
 fi
 
+./build/cnegc build examples/valid_result_identifier.cneg "$tmp_bin" >"$tmp_valid"
+set +e
+"$tmp_bin" >"$tmp_run"
+status=$?
+set -e
+if [ "$status" -ne 7 ]; then
+    printf 'expected valid_result_identifier binary to exit 7, got %d\n' "$status"
+    cat "$tmp_run"
+    exit 1
+fi
+
+./build/cnegc build examples/result_alias/main.cneg "$tmp_bin" >"$tmp_valid"
+set +e
+"$tmp_bin" >"$tmp_run"
+status=$?
+set -e
+if [ "$status" -ne 8 ]; then
+    printf 'expected result_alias/main.cneg binary to exit 8, got %d\n' "$status"
+    cat "$tmp_run"
+    exit 1
+fi
+
 ./build/cnegc build examples/valid_result_guard_index.cneg "$tmp_bin" >"$tmp_valid"
 set +e
 "$tmp_bin" >"$tmp_run"
@@ -1888,6 +1959,17 @@ status=$?
 set -e
 if [ "$status" -ne 30 ]; then
     printf 'expected valid_result_guard_index binary to exit 30, got %d\n' "$status"
+    cat "$tmp_run"
+    exit 1
+fi
+
+./build/cnegc build examples/valid_result_guard_alias.cneg "$tmp_bin" >"$tmp_valid"
+set +e
+"$tmp_bin" >"$tmp_run"
+status=$?
+set -e
+if [ "$status" -ne 20 ]; then
+    printf 'expected valid_result_guard_alias binary to exit 20, got %d\n' "$status"
     cat "$tmp_run"
     exit 1
 fi

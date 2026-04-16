@@ -483,9 +483,16 @@ Current checked rule for `result` access:
 - `.value` requires proof in the current scope that the named result is ok.
 - `if r.ok { return r.value; }` is valid.
 - `if r.ok == false { return err; }` is also a valid proof pattern.
+- immutable bool aliases like `let ready:bool = r.ok; if ready { ... }` are also understood.
+- simple composed guards like `if r.ok && cond { ... }` and `if blocked || cond { return err; }` are understood when they prove the result is ok on the active branch.
 - `let first:int = if r.ok { r.value[0] } else { 0 };` is valid.
 - `while r.ok { return r.value[0]; }` is also a valid proof pattern.
 - `return r.value;` without such a proof is rejected.
+
+Contextual keyword rule:
+
+- `result` is treated as the `result T` type constructor only in type positions.
+- Outside type parsing, `result` can be used as a normal identifier or import alias.
 
 Current output rule:
 
